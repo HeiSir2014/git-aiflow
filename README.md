@@ -63,8 +63,8 @@
 ### 1. 克隆项目
 
 ```bash
-git clone git@github.com:HeiSir2014/aiflow.git
-cd aiflow
+git clone git@github.com:HeiSir2014/git-aiflow.git
+cd git-aiflow
 ```
 
 ### 2. 安装依赖
@@ -79,31 +79,74 @@ npm install
 npm run build
 ```
 
-### 4. 配置环境变量
+### 4. 配置 AIFlow
 
-复制环境变量模板：
+交互式初始化配置：
 
 ```bash
-cp .env.example .env
+# 初始化本地配置
+aiflow init
+
+# 或初始化全局配置
+aiflow init --global
 ```
 
-编辑 `.env` 文件，填入真实的配置信息：
+您也可以手动创建配置文件或使用环境变量。
 
-```bash
-# OpenAI 配置
-OPENAI_KEY=sk-your-actual-openai-api-key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+**配置优先级**（从高到低）：
+1. 命令行参数
+2. 本地配置文件（`.aiflow/config.yaml`）
+3. 全局配置文件（`~/.config/aiflow/config.yaml` 或 `%APPDATA%/aiflow/config.yaml`）
+4. 环境变量（`.env` 文件或系统环境变量）
 
-# GitLab 配置
-GITLAB_TOKEN=glpat-your-gitlab-token
+**配置文件示例**：
 
-# 企业微信配置
-WECOM_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
+```yaml
+# AIFlow 配置文件
+# 配置优先级: 命令行参数 > 本地配置 > 全局配置 > 环境变量
 
-# Conan 配置（仅 Conan 工具需要）
-CONAN_REMOTE_BASE_URL=http://your-conan-server.com
-CONAN_REMOTE_REPO=your-repo-name
+# OpenAI API 配置 - 用于AI驱动的功能
+openai:
+  # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
+  key: sk-your-actual-openai-api-key
+  
+  # OpenAI API 基础URL (必需) - API请求的端点地址
+  baseUrl: https://api.openai.com/v1
+  
+  # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
+  model: gpt-4o-mini
+
+# GitLab 配置 - 用于仓库操作和合并请求管理
+gitlab:
+  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
+  token: glpat-your-gitlab-token
+  
+  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
+  # baseUrl: https://gitlab.example.com
+
+# Conan 包管理器配置 - 用于C++包管理和版本更新
+conan:
+  # Conan 远程仓库基础URL (Conan操作时必需) - Conan包仓库的API地址
+  # remoteBaseUrl: https://conan.example.com
+  
+  # Conan 远程仓库名称 (可选) - 默认使用的仓库名称，默认为'repo'
+  remoteRepo: repo
+
+# 企业微信通知配置 - 用于发送操作结果通知
+wecom:
+  # 启用企业微信通知 (可选) - 是否开启通知功能，默认为false
+  enable: true
+  
+  # 企业微信机器人Webhook地址 (可选) - 用于发送通知消息的机器人地址
+  webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
+
+# Git 合并请求配置 - 控制MR的默认行为
+git:
+  # 压缩提交 (可选) - 合并时是否将多个提交压缩为一个，默认为true
+  squashCommits: true
+  
+  # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
+  removeSourceBranch: true
 ```
 
 ## 🚀 使用方法
@@ -113,14 +156,24 @@ CONAN_REMOTE_REPO=your-repo-name
 用于处理已暂存的 Git 变更：
 
 ```bash
-# 1. 暂存你的变更
+# 1. 初始化配置（首次使用）
+aiflow init                    # 本地配置
+aiflow init --global           # 全局配置
+
+# 2. 暂存你的变更
 git add .
 
-# 2. 运行自动 MR 工具
-npm run aiflow
+# 3. 运行自动 MR 工具
+aiflow
 
-# 或查看帮助信息
-npm run aiflow -- --help
+# 或使用 CLI 参数覆盖配置
+aiflow -ok sk-abc123 -gt glpat-xyz789
+
+# 查看配置帮助
+aiflow --config-help
+
+# 查看一般帮助
+aiflow --help
 ```
 
 **工作流程**：
@@ -136,18 +189,28 @@ npm run aiflow -- --help
 用于更新 Conan 包版本：
 
 ```bash
+# 初始化配置（首次使用）
+aiflow-conan init                    # 本地配置
+aiflow-conan init --global           # 全局配置
+
 # 更新指定包（使用默认仓库）
-npm run aiflow-conan <package-name>
+aiflow-conan <package-name>
 
 # 更新指定包（指定仓库）
-npm run aiflow-conan <package-name> <remote-repo>
+aiflow-conan <package-name> <remote-repo>
 
 # 示例
-npm run aiflow-conan zterm
-npm run aiflow-conan winusb repo
+aiflow-conan zterm
+aiflow-conan winusb repo
+
+# 使用 CLI 参数覆盖配置
+aiflow-conan -ok sk-abc123 -gt glpat-xyz789 zterm
+
+# 查看配置帮助
+aiflow-conan --config-help
 
 # 查看帮助信息
-npm run aiflow-conan -- --help
+aiflow-conan --help
 ```
 
 **前置要求**：
@@ -165,23 +228,54 @@ npm run aiflow-conan -- --help
 
 ## ⚙️ 配置说明
 
-### 必需环境变量
+### 配置方式
 
-| 变量名 | 描述 | 示例 |
-|--------|------|------|
-| `OPENAI_KEY` | OpenAI API 密钥 | `sk-xxx...` |
-| `GITLAB_TOKEN` | GitLab 个人访问令牌 | `glpat-xxx...` |
-| `WECOM_WEBHOOK` | 企业微信 Webhook URL | `https://qyapi.weixin.qq.com/...` |
+AIFlow 支持多种配置方式，优先级从高到低如下：
 
-### 可选环境变量
+1. **命令行参数**（最高优先级）
+2. **本地配置文件**（`.aiflow/config.yaml`）
+3. **全局配置文件**（`~/.config/aiflow/config.yaml` 或 `%APPDATA%/aiflow/config.yaml`）
+4. **环境变量**（最低优先级）
+
+### 交互式配置
+
+```bash
+# 初始化本地配置
+aiflow init
+
+# 初始化全局配置  
+aiflow init --global
+```
+
+### CLI 参数
+
+| 短参数 | 长参数 | 描述 | 必需/可选 |
+|--------|--------|------|-----------|
+| `-ok` | `--openai-key` | OpenAI API 密钥 | 必需 |
+| `-obu` | `--openai-base-url` | OpenAI API 基础 URL | 必需 |
+| `-om` | `--openai-model` | OpenAI 模型名称 | 必需 |
+| `-gt` | `--gitlab-token` | GitLab 访问令牌 | 必需 |
+| `-gbu` | `--gitlab-base-url` | GitLab 基础 URL | 可选 |
+| `-crbu` | `--conan-remote-base-url` | Conan 仓库 API URL | Conan操作必需 |
+| `-crr` | `--conan-remote-repo` | Conan 仓库名称 | 可选 |
+| `-ww` | `--wecom-webhook` | 企业微信 webhook URL | 可选 |
+| `-we` | `--wecom-enable` | 启用企业微信通知 | 可选 |
+| `-sc` | `--squash-commits` | 压缩提交 | 可选 |
+| `-rsb` | `--remove-source-branch` | 删除源分支 | 可选 |
+
+### 环境变量（兼容性支持）
 
 | 变量名 | 描述 | 默认值 |
 |--------|------|--------|
+| `OPENAI_KEY` | OpenAI API 密钥 | - |
 | `OPENAI_BASE_URL` | OpenAI API 基础 URL | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | OpenAI 模型名称 | `gpt-4o-mini` |
+| `OPENAI_MODEL` | OpenAI 模型名称 | `gpt-3.5-turbo` |
+| `GITLAB_TOKEN` | GitLab 个人访问令牌 | - |
 | `GITLAB_BASE_URL` | GitLab 基础 URL | 自动检测 |
 | `CONAN_REMOTE_BASE_URL` | Conan 远程服务器 URL | - |
 | `CONAN_REMOTE_REPO` | Conan 远程仓库名 | `repo` |
+| `WECOM_WEBHOOK` | 企业微信 Webhook URL | - |
+| `WECOM_ENABLE` | 启用企业微信通知 | `false` |
 | `SQUASH_COMMITS` | 是否压缩提交 | `true` |
 | `REMOVE_SOURCE_BRANCH` | 合并后删除源分支 | `true` |
 
@@ -241,10 +335,12 @@ npm run aiflow-conan -- --help
 git add .
 ```
 
-**2. "Missing required environment variables"**
+**2. "Missing required configuration"**
 ```bash
-# 解决方案：检查 .env 文件配置
-cat .env
+# 解决方案：初始化配置或检查配置文件
+aiflow init
+# 或检查现有配置
+aiflow --config-help
 ```
 
 **3. "Could not determine target branch"**
@@ -309,19 +405,25 @@ npm run aiflow
 
 ```
 src/
-├── services/           # 核心服务
-│   ├── git-service.ts     # Git 操作
-│   ├── gitlab-service.ts  # GitLab API
-│   ├── openai-service.ts  # OpenAI API
-│   ├── conan-service.ts   # Conan API
-│   └── wecom-notifier.ts  # 企业微信通知
-├── utils/              # 工具函数
-│   └── string-util.ts     # 字符串处理
-├── http/               # HTTP 客户端
+├── services/              # 核心服务
+│   ├── git-service.ts        # Git 操作
+│   ├── gitlab-service.ts     # GitLab API
+│   ├── openai-service.ts     # OpenAI API
+│   ├── conan-service.ts      # Conan API
+│   ├── wecom-notifier.ts     # 企业微信通知
+│   ├── conandata-service.ts  # Conan 数据文件操作
+│   ├── conanlock-service.ts  # Conan 锁文件操作
+│   └── file-updater-service.ts # 文件更新操作
+├── utils/                 # 工具函数
+│   └── string-util.ts        # 字符串处理
+├── http/                  # HTTP 客户端
 │   └── http-client.ts
-├── git-auto-mr-app.ts  # 通用 MR 工具
-├── conan-pkg-update-app.ts # Conan 更新工具
-└── index.ts            # 入口文件
+├── test/                  # 测试文件
+├── config.ts              # 配置管理
+├── aiflow-app.ts          # 通用 MR 工具
+├── aiflow-conan-app.ts    # Conan 更新工具
+├── shell.ts               # Shell 命令执行
+└── index.ts               # 入口文件
 ```
 
 ### 开发命令

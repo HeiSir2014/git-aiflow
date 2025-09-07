@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { config } from 'dotenv';
 import { Shell } from './shell.js';
 import { HttpClient } from './http/http-client.js';
@@ -332,9 +334,7 @@ Examples:
 }
 
 // Only run if this file is executed directly
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
-  GitAutoMrApp.main().catch((error) => {
-    console.error('❌ Unhandled error:', error);
-    process.exit(1);
-  });
-}
+GitAutoMrApp.main().catch((error) => {
+  console.error('❌ Unhandled error:', error);
+  process.exit(1);
+});
