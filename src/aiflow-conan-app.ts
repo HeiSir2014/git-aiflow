@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env node --input-type=module
 
 import { config } from 'dotenv';
 import { Shell } from './shell.js';
