@@ -60,8 +60,8 @@ Specialized automation tool for Conan package version updates.
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:HeiSir2014/aiflow.git
-cd aiflow
+git clone git@github.com:HeiSir2014/git-aiflow.git
+cd git-aiflow
 ```
 
 ### 2. Install Dependencies
@@ -76,31 +76,74 @@ npm install
 npm run build
 ```
 
-### 4. Configure Environment Variables
+### 4. Configure AIFlow
 
-Copy the environment template:
+Initialize configuration interactively:
 
 ```bash
-cp .env.example .env
+# Initialize local configuration
+aiflow init
+
+# Or initialize global configuration
+aiflow init --global
 ```
 
-Edit the `.env` file with your actual configuration:
+You can also manually create configuration files or use environment variables.
 
-```bash
-# OpenAI Configuration
-OPENAI_KEY=sk-your-actual-openai-api-key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+**Configuration Priority** (highest to lowest):
+1. Command-line arguments
+2. Local config (`.aiflow/config.yaml`)
+3. Global config (`~/.config/aiflow/config.yaml` or `%APPDATA%/aiflow/config.yaml`)
+4. Environment variables (`.env` file or system env)
 
-# GitLab Configuration
-GITLAB_TOKEN=glpat-your-gitlab-token
+**Example configuration file**:
 
-# WeCom Configuration
-WECOM_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
+```yaml
+# AIFlow Configuration File
+# Priority: CLI args > local config > global config > environment variables
 
-# Conan Configuration (only for Conan tool)
-CONAN_REMOTE_BASE_URL=http://your-conan-server.com
-CONAN_REMOTE_REPO=your-repo-name
+# OpenAI API Configuration - for AI-driven features
+openai:
+  # OpenAI API key (required) - for generating commit messages and code analysis
+  key: sk-your-actual-openai-api-key
+  
+  # OpenAI API base URL (required) - API request endpoint
+  baseUrl: https://api.openai.com/v1
+  
+  # OpenAI model name (required) - specify AI model like gpt-3.5-turbo, gpt-4
+  model: gpt-4o-mini
+
+# GitLab Configuration - for repository operations and merge request management
+gitlab:
+  # GitLab personal access token (required) - for API operations, requires api and write_repository permissions
+  token: glpat-your-gitlab-token
+  
+  # GitLab base URL (optional) - custom GitLab instance address, auto-detected from git remote if empty
+  # baseUrl: https://gitlab.example.com
+
+# Conan Package Manager Configuration - for C++ package management and version updates
+conan:
+  # Conan remote repository base URL (required for Conan operations) - Conan package repository API address
+  # remoteBaseUrl: https://conan.example.com
+  
+  # Conan remote repository name (optional) - default repository name, defaults to 'repo'
+  remoteRepo: repo
+
+# WeCom Notification Configuration - for sending operation result notifications
+wecom:
+  # Enable WeCom notifications (optional) - whether to enable notification feature, defaults to false
+  enable: true
+  
+  # WeCom bot webhook address (optional) - for sending notification messages
+  webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
+
+# Git Merge Request Configuration - controls MR default behavior
+git:
+  # Squash commits (optional) - whether to squash multiple commits when merging, defaults to true
+  squashCommits: true
+  
+  # Remove source branch (optional) - whether to delete source branch after merging, defaults to true
+  removeSourceBranch: true
 ```
 
 ## 🚀 Usage
@@ -110,14 +153,24 @@ CONAN_REMOTE_REPO=your-repo-name
 For handling staged Git changes:
 
 ```bash
-# 1. Stage your changes
+# 1. Initialize configuration (first time)
+aiflow init                    # Local configuration
+aiflow init --global           # Global configuration
+
+# 2. Stage your changes
 git add .
 
-# 2. Run the auto MR tool
+# 3. Run the auto MR tool
 npm run aiflow
 
-# Or view help information
-npm run aiflow -- --help
+# Or with CLI arguments to override config
+aiflow -ok sk-abc123 -gt glpat-xyz789
+
+# View configuration help
+aiflow --config-help
+
+# View general help
+aiflow --help
 ```
 
 **Workflow**:
@@ -133,18 +186,28 @@ npm run aiflow -- --help
 For updating Conan package versions:
 
 ```bash
+# Initialize configuration (first time)
+aiflow-conan init                    # Local configuration
+aiflow-conan init --global           # Global configuration
+
 # Update specified package (using default repository)
-npm run aiflow-conan <package-name>
+aiflow-conan <package-name>
 
 # Update specified package (specify repository)
-npm run aiflow-conan <package-name> <remote-repo>
+aiflow-conan <package-name> <remote-repo>
 
 # Examples
-npm run aiflow-conan zterm
-npm run aiflow-conan winusb repo
+aiflow-conan zterm
+aiflow-conan winusb repo
+
+# With CLI arguments to override config
+aiflow-conan -ok sk-abc123 -gt glpat-xyz789 zterm
+
+# View configuration help
+aiflow-conan --config-help
 
 # View help information
-npm run aiflow-conan -- --help
+aiflow-conan --help
 ```
 
 **Prerequisites**:
@@ -162,23 +225,54 @@ npm run aiflow-conan -- --help
 
 ## ⚙️ Configuration
 
-### Required Environment Variables
+### Configuration Methods
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OPENAI_KEY` | OpenAI API key | `sk-xxx...` |
-| `GITLAB_TOKEN` | GitLab Personal Access Token | `glpat-xxx...` |
-| `WECOM_WEBHOOK` | WeCom Webhook URL | `https://qyapi.weixin.qq.com/...` |
+AIFlow supports multiple configuration methods with the following priority order (highest to lowest):
 
-### Optional Environment Variables
+1. **Command-line arguments** (highest priority)
+2. **Local configuration file** (`.aiflow/config.yaml`)
+3. **Global configuration file** (`~/.config/aiflow/config.yaml` or `%APPDATA%/aiflow/config.yaml`)
+4. **Environment variables** (lowest priority)
+
+### Interactive Configuration
+
+```bash
+# Initialize local configuration
+aiflow init
+
+# Initialize global configuration  
+aiflow init --global
+```
+
+### CLI Arguments
+
+| Short | Long | Description | Required/Optional |
+|-------|------|-------------|-------------------|
+| `-ok` | `--openai-key` | OpenAI API key | Required |
+| `-obu` | `--openai-base-url` | OpenAI API base URL | Required |
+| `-om` | `--openai-model` | OpenAI model name | Required |
+| `-gt` | `--gitlab-token` | GitLab access token | Required |
+| `-gbu` | `--gitlab-base-url` | GitLab base URL | Optional |
+| `-crbu` | `--conan-remote-base-url` | Conan repository API URL | Required for Conan |
+| `-crr` | `--conan-remote-repo` | Conan repository name | Optional |
+| `-ww` | `--wecom-webhook` | WeCom webhook URL | Optional |
+| `-we` | `--wecom-enable` | Enable WeCom notifications | Optional |
+| `-sc` | `--squash-commits` | Squash commits | Optional |
+| `-rsb` | `--remove-source-branch` | Remove source branch | Optional |
+
+### Environment Variables (Legacy Support)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `OPENAI_KEY` | OpenAI API key | - |
 | `OPENAI_BASE_URL` | OpenAI API base URL | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | OpenAI model name | `gpt-4o-mini` |
+| `OPENAI_MODEL` | OpenAI model name | `gpt-3.5-turbo` |
+| `GITLAB_TOKEN` | GitLab Personal Access Token | - |
 | `GITLAB_BASE_URL` | GitLab base URL | Auto-detected |
 | `CONAN_REMOTE_BASE_URL` | Conan remote server URL | - |
 | `CONAN_REMOTE_REPO` | Conan remote repository name | `repo` |
+| `WECOM_WEBHOOK` | WeCom Webhook URL | - |
+| `WECOM_ENABLE` | Enable WeCom notifications | `false` |
 | `SQUASH_COMMITS` | Whether to squash commits | `true` |
 | `REMOVE_SOURCE_BRANCH` | Delete source branch after merge | `true` |
 
@@ -238,10 +332,12 @@ The tool uses OpenAI API to analyze code differences and generate:
 git add .
 ```
 
-**2. "Missing required environment variables"**
+**2. "Missing required configuration"**
 ```bash
-# Solution: Check .env file configuration
-cat .env
+# Solution: Initialize configuration or check config files
+aiflow init
+# Or check existing configuration
+aiflow --config-help
 ```
 
 **3. "Could not determine target branch"**
@@ -306,19 +402,25 @@ The tool outputs detailed execution steps:
 
 ```
 src/
-├── services/           # Core services
-│   ├── git-service.ts     # Git operations
-│   ├── gitlab-service.ts  # GitLab API
-│   ├── openai-service.ts  # OpenAI API
-│   ├── conan-service.ts   # Conan API
-│   └── wecom-notifier.ts  # WeCom notifications
-├── utils/              # Utility functions
-│   └── string-util.ts     # String processing
-├── http/               # HTTP client
+├── services/              # Core services
+│   ├── git-service.ts        # Git operations
+│   ├── gitlab-service.ts     # GitLab API
+│   ├── openai-service.ts     # OpenAI API
+│   ├── conan-service.ts      # Conan API
+│   ├── wecom-notifier.ts     # WeCom notifications
+│   ├── conandata-service.ts  # Conan data file operations
+│   ├── conanlock-service.ts  # Conan lock file operations
+│   └── file-updater-service.ts # File update operations
+├── utils/                 # Utility functions
+│   └── string-util.ts        # String processing
+├── http/                  # HTTP client
 │   └── http-client.ts
-├── git-auto-mr-app.ts  # General MR tool
-├── conan-pkg-update-app.ts # Conan update tool
-└── index.ts            # Entry point
+├── test/                  # Test files
+├── config.ts              # Configuration management
+├── aiflow-app.ts          # General MR tool
+├── aiflow-conan-app.ts    # Conan update tool
+├── shell.ts               # Shell command execution
+└── index.ts               # Entry point
 ```
 
 ### Development Commands

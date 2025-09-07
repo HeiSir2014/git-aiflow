@@ -21,7 +21,7 @@
     "typeRoots": ["node_modules/@types"],      // 类型根目录
     "lib": ["ES2020", "DOM"],                  // 支持 ES2020 和 fetch/DOM API
     "resolveJsonModule": true,                 // 可以 import json
-    "incremental": true                        // 增量编译
+    "incremental": false                        // 增量编译
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

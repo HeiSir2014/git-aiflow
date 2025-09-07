@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env node --input-type=module
 
 import { config } from 'dotenv';
 import { Shell } from './shell.js';
@@ -404,7 +404,6 @@ Files Required:
     await app.updatePackage(packageName, finalRemote);
   }
 }
-
 
 ConanPkgUpdateApp.main().catch((error) => {
   console.error('❌ Unhandled error:', error);

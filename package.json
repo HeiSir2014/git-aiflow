@@ -1,11 +1,13 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
     "aiflow": "dist/aiflow-app.js",
-    "aiflow-conan": "dist/aiflow-conan-app.js"
+    "aiflow-conan": "dist/aiflow-conan-app.js",
+    "git-aiflow": "dist/aiflow-app.js",
+    "git-aiflow-conan": "dist/aiflow-conan-app.js"
   },
   "type": "module",
   "scripts": {
@@ -53,5 +55,15 @@
   "dependencies": {
     "dotenv": "^17.2.2",
     "js-yaml": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HeiSir2014/git-aiflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HeiSir2014/git-aiflow/issues"
   }
 }
