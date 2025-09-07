@@ -1,0 +1,45 @@
+# AIFlow Configuration File
+# 配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(~/.config/aiflow/config.yaml) > 环境变量
+
+# OpenAI API 配置 - 用于AI驱动的功能
+openai:
+  # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
+  key: your-openai-api-key
+  
+  # OpenAI API 基础URL (必需) - API请求的端点地址
+  baseUrl: https://api.openai.com/v1
+  
+  # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
+  model: gpt-3.5-turbo
+
+# GitLab 配置 - 用于仓库操作和合并请求管理
+gitlab:
+  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
+  token: your-gitlab-token
+  
+  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
+  baseUrl: https://gitlab.example.com
+
+# Conan 包管理器配置 - 用于C++包管理和版本更新
+conan:
+  # Conan 远程仓库基础URL (Conan操作时必需) - Conan包仓库的API地址
+  remoteBaseUrl: https://conan.example.com
+  
+  # Conan 远程仓库名称 (可选) - 默认使用的仓库名称，默认为'repo'
+  remoteRepo: repo
+
+# 企业微信通知配置 - 用于发送操作结果通知
+wecom:
+  # 启用企业微信通知 (可选) - 是否开启通知功能，默认为false
+  enable: true
+  
+  # 企业微信机器人Webhook地址 (可选) - 用于发送通知消息的机器人地址
+  webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-key
+
+# Git 合并请求配置 - 控制MR的默认行为
+git:
+  # 压缩提交 (可选) - 合并时是否将多个提交压缩为一个，默认为true
+  squashCommits: true
+  
+  # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
+  removeSourceBranch: true

@@ -1,0 +1,57 @@
+{
+  "name": "git-aiflow",
+  "version": "1.0.0",
+  "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
+  "main": "dist/index.js",
+  "bin": {
+    "aiflow": "dist/aiflow-app.js",
+    "aiflow-conan": "dist/aiflow-conan-app.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --loader ts-node/esm src/index.ts",
+    "dev": "node --watch --loader ts-node/esm src/index.ts",
+    "debug-brk": "node --inspect-brk --loader ts-node/esm src/index.ts",
+    "debug": "node --inspect --loader ts-node/esm src/index.ts",
+    "test:config": "node --loader ts-node/esm src/test/config.test.ts",
+    "test:gitlab": "node --loader ts-node/esm src/test/gitlab-service.test.ts",
+    "test:conan": "node --loader ts-node/esm src/test/conan-service.test.ts",
+    "test:conan-update": "node --loader ts-node/esm src/test/conan-pkg-update.test.ts",
+    "test:file-update": "node --loader ts-node/esm src/test/file-update.test.ts",
+    "test:openai-parse": "node --loader ts-node/esm src/test/openai-json-parse.test.ts",
+    "test:conan-revision": "node --loader ts-node/esm src/test/conan-revision.test.ts",
+    "test:conan-v2": "node --loader ts-node/esm src/test/conan-v2-api.test.ts",
+    "test:shell-multiline": "node --loader ts-node/esm src/test/shell-multiline.test.ts",
+    "test:gitlab-auto": "node --loader ts-node/esm src/test/gitlab-auto-detect.test.ts",
+    "aiflow": "node --loader ts-node/esm src/aiflow-app.ts",
+    "aiflow-conan": "node --loader ts-node/esm src/aiflow-conan-app.ts",
+    "git-info": "node --loader ts-node/esm src/git-info.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "ai",
+    "workflow",
+    "automation",
+    "git",
+    "gitlab",
+    "conan",
+    "openai",
+    "merge-request",
+    "cli",
+    "typescript"
+  ],
+  "author": "heisir",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "cross-env": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2",
+    "@types/js-yaml": "^4.0.9"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "js-yaml": "^4.1.0"
+  }
+}
