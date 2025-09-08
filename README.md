@@ -24,7 +24,7 @@
 - 🤖 **AI 智能生成**：使用 OpenAI API 自动生成提交信息和分支名称
 - 🔄 **自动化工作流**：从代码变更到合并请求一键完成
 - 📦 **Conan 包管理**：专门支持 Conan 包版本更新
-- 🌐 **GitLab 集成**：自动检测项目信息并创建合并请求
+- 🌐 **多平台 Git 集成**：支持 GitHub、GitLab、Gitee 等多个 Git 托管平台
 - 📱 **企业微信通知**：通过 WeCom Webhook 发送通知
 - 🎯 **智能分支检测**：自动识别目标分支（main/master/develop）
 - 🔧 **灵活配置**：支持多种配置选项和环境变量
@@ -55,7 +55,7 @@
 - **Node.js**: >= 16.0.0
 - **npm**: >= 7.0.0
 - **Git**: 已配置且能访问远程仓库
-- **GitLab**: 具有 API 访问权限的 Personal Access Token
+- **Git 托管平台**: GitHub、GitLab、Gitee 等平台的 Personal Access Token
 - **OpenAI**: 有效的 API Key
 
 ## 🔧 安装配置
@@ -114,15 +114,21 @@ openai:
   baseUrl: https://api.openai.com/v1
   
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
-  model: gpt-4o-mini
+  model: gpt-3.5-turbo
 
-# GitLab 配置 - 用于仓库操作和合并请求管理
-gitlab:
-  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
-  token: glpat-your-gitlab-token
+# Git 访问令牌配置 - 支持多个Git托管平台
+git_access_tokens:
+  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
-  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
-  # baseUrl: https://gitlab.example.com
+  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
+  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
+  
+  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
+  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
+  
+  # 您可以添加更多Git托管平台的令牌
+  # 格式: 主机名: 访问令牌
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
@@ -167,7 +173,7 @@ git add .
 aiflow
 
 # 或使用 CLI 参数覆盖配置
-aiflow -ok sk-abc123 -gt glpat-xyz789
+aiflow -ok sk-abc123 -gat github.com=ghp-xyz789
 
 # 查看配置帮助
 aiflow --config-help
@@ -204,7 +210,7 @@ aiflow-conan zterm
 aiflow-conan winusb repo
 
 # 使用 CLI 参数覆盖配置
-aiflow-conan -ok sk-abc123 -gt glpat-xyz789 zterm
+aiflow-conan -ok sk-abc123 -gat gitlab.example.com=glpat-xyz789 zterm
 
 # 查看配置帮助
 aiflow-conan --config-help
@@ -254,8 +260,7 @@ aiflow init --global
 | `-ok` | `--openai-key` | OpenAI API 密钥 | 必需 |
 | `-obu` | `--openai-base-url` | OpenAI API 基础 URL | 必需 |
 | `-om` | `--openai-model` | OpenAI 模型名称 | 必需 |
-| `-gt` | `--gitlab-token` | GitLab 访问令牌 | 必需 |
-| `-gbu` | `--gitlab-base-url` | GitLab 基础 URL | 可选 |
+| `-gat` | `--git-access-token` | Git 访问令牌 (格式: 主机名=令牌) | 必需 |
 | `-crbu` | `--conan-remote-base-url` | Conan 仓库 API URL | Conan操作必需 |
 | `-crr` | `--conan-remote-repo` | Conan 仓库名称 | 可选 |
 | `-ww` | `--wecom-webhook` | 企业微信 webhook URL | 可选 |
@@ -270,8 +275,7 @@ aiflow init --global
 | `OPENAI_KEY` | OpenAI API 密钥 | - |
 | `OPENAI_BASE_URL` | OpenAI API 基础 URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | OpenAI 模型名称 | `gpt-3.5-turbo` |
-| `GITLAB_TOKEN` | GitLab 个人访问令牌 | - |
-| `GITLAB_BASE_URL` | GitLab 基础 URL | 自动检测 |
+| `GIT_ACCESS_TOKEN_<HOST>` | Git 访问令牌 (如: GIT_ACCESS_TOKEN_GITHUB_COM) | - |
 | `CONAN_REMOTE_BASE_URL` | Conan 远程服务器 URL | - |
 | `CONAN_REMOTE_REPO` | Conan 远程仓库名 | `repo` |
 | `WECOM_WEBHOOK` | 企业微信 Webhook URL | - |
@@ -279,13 +283,21 @@ aiflow init --global
 | `SQUASH_COMMITS` | 是否压缩提交 | `true` |
 | `REMOVE_SOURCE_BRANCH` | 合并后删除源分支 | `true` |
 
-### GitLab Token 权限要求
+### Git 平台 Token 权限要求
 
-创建 GitLab Personal Access Token 时需要以下权限：
+**GitLab Personal Access Token 权限：**
 - ✅ `api` - 完整 API 访问
 - ✅ `read_user` - 读取用户信息
 - ✅ `read_repository` - 读取仓库信息
 - ✅ `write_repository` - 写入仓库信息
+
+**GitHub Personal Access Token 权限：**
+- ✅ `repo` - 完整仓库访问权限
+- ✅ `workflow` - 工作流访问权限（如需要）
+
+**Gitee Personal Access Token 权限：**
+- ✅ `projects` - 项目权限
+- ✅ `pull_requests` - 拉取请求权限
 
 ## 🔄 工作流程
 
@@ -293,10 +305,11 @@ aiflow init --global
 
 工具会自动检测以下信息：
 
-1. **GitLab 项目信息**
-   - 从 `git remote` URL 解析项目 ID
+1. **Git 平台项目信息**
+   - 从 `git remote` URL 解析项目信息
    - 支持 HTTP 和 SSH URL 格式
-   - 自动提取 GitLab 服务器地址
+   - 自动检测 GitHub、GitLab、Gitee 等平台
+   - 智能 API 端点探测（支持企业自部署实例）
 
 2. **目标分支检测**
    - 优先级：`main` > `master` > `develop`
@@ -350,10 +363,13 @@ git branch -r
 git remote -v
 ```
 
-**4. "GitLab API error"**
+**4. "Git API error"**
 ```bash
-# 解决方案：验证 GitLab Token 权限
+# 解决方案：验证访问令牌权限
+# GitLab:
 curl -H "PRIVATE-TOKEN: your-token" https://gitlab.com/api/v4/user
+# GitHub:
+curl -H "Authorization: Bearer your-token" https://api.github.com/user
 ```
 
 **5. Conan 包更新失败**
@@ -365,16 +381,38 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
+### 日志系统
+
+AIFlow 使用基于 Winston 的企业级日志系统：
+
+**日志位置：**
+- **Windows**: `%APPDATA%\aiflow\logs\`
+- **macOS**: `~/Library/Application Support/aiflow/logs/`
+- **Linux**: `~/.config/aiflow/logs/`
+
+**日志文件：**
+- `aiflow.log` - 所有级别的日志
+- `error.log` - 仅错误级别的日志
+
+**日志功能：**
+- 📁 按文件大小自动滚动（10MB/文件，保留5个文件）
+- 🕐 包含时间戳、上下文标记和详细元数据
+- 📊 结构化 JSON 格式便于分析
+- 🏷️ 服务级别的上下文标记（Shell、GitService、HttpClient 等）
+
 ### 调试模式
 
-启用详细日志输出：
+查看实时日志：
 
 ```bash
-# 设置调试环境变量
-export DEBUG=aiflow:*
+# 查看所有日志
+tail -f ~/.config/aiflow/logs/aiflow.log
 
-# 运行工具
-npm run aiflow
+# 仅查看错误日志
+tail -f ~/.config/aiflow/logs/error.log
+
+# Windows 用户
+Get-Content -Path "$env:APPDATA\aiflow\logs\aiflow.log" -Wait
 ```
 
 ### 日志分析
@@ -393,7 +431,7 @@ npm run aiflow
 ✅ Generated branch name: username/add-new-feature-20240101
 📤 Creating branch and pushing changes...
 📋 Creating Merge Request...
-🎉 Merge Request created: https://gitlab.com/project/-/merge_requests/123
+🎉 Merge Request created: https://github.com/user/project/pull/123
 📢 Sending notification...
 📢 Notification sent via WeCom webhook.
 ✅ AIFlow workflow completed successfully!
@@ -407,7 +445,9 @@ npm run aiflow
 src/
 ├── services/              # 核心服务
 │   ├── git-service.ts        # Git 操作
-│   ├── gitlab-service.ts     # GitLab API
+│   ├── git-platform-service.ts # Git 平台抽象接口
+│   ├── gitlab-platform-service.ts # GitLab 平台实现
+│   ├── github-platform-service.ts # GitHub 平台实现
 │   ├── openai-service.ts     # OpenAI API
 │   ├── conan-service.ts      # Conan API
 │   ├── wecom-notifier.ts     # 企业微信通知
@@ -420,6 +460,7 @@ src/
 │   └── http-client.ts
 ├── test/                  # 测试文件
 ├── config.ts              # 配置管理
+├── logger.ts              # 日志系统
 ├── aiflow-app.ts          # 通用 MR 工具
 ├── aiflow-conan-app.ts    # Conan 更新工具
 ├── shell.ts               # Shell 命令执行

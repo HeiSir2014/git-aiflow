@@ -61,7 +61,7 @@ function ensureLogsDir(logDir: string): void {
  * Default logger configuration
  */
 const defaultConfig: LoggerConfig = {
-  level: LogLevel.INFO,
+  level: LogLevel.DEBUG,
   maxSize: '10m',      // 10MB per file
   maxFiles: 5,         // Keep 5 files
   logDir: getGlobalLogsDir(),
