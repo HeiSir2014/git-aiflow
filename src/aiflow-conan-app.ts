@@ -98,13 +98,14 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
 
       const mrTitle = `chore: update ${packageName} package to latest version`;
-      const mrUrl = await this.gitlab.createMergeRequest(
+      const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         mrTitle,
         squashCommits,
         removeSourceBranch
       );
+      console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
       // Step 9: Send notification
       console.log(`📢 Sending notification...`);
@@ -194,8 +195,7 @@ Configuration Options (可以通过 CLI 参数覆盖配置文件):
   -ok, --openai-key <key>               OpenAI API 密钥
   -obu, --openai-base-url <url>         OpenAI API 地址
   -om, --openai-model <model>           OpenAI 模型
-  -gt, --gitlab-token <token>           GitLab 访问令牌
-  -gbu, --gitlab-base-url <url>         GitLab 地址
+  -gat, --git-access-token <host=token> Git 访问令牌 (格式: 主机名=令牌)
   -crbu, --conan-remote-base-url <url>  Conan 仓库 API 地址
   -crr, --conan-remote-repo <repo>      Conan 仓库名称
   -ww, --wecom-webhook <url>            企业微信 Webhook 地址
@@ -208,7 +208,7 @@ Examples:
   aiflow-conan init --global                     # 交互式初始化全局配置
   aiflow-conan zterm                             # 使用配置文件运行
   aiflow-conan zterm repo                        # 指定远程仓库
-  aiflow-conan -ok sk-123 -gt glpat-456 zterm    # 使用 CLI 参数覆盖配置
+  aiflow-conan -ok sk-123 -gat gitlab.example.com=glpat-456 zterm    # 使用 CLI 参数覆盖配置
 
 配置文件位置 (按优先级排序):
   1. 命令行参数 (最高优先级)
@@ -217,9 +217,10 @@ Examples:
   4. 环境变量 (最低优先级)
 
 Auto-Detection Features:
-  ✅ GitLab project ID from git remote URL (HTTP/SSH supported)
-  ✅ GitLab base URL from git remote URL
-  ✅ Target branch detection (main/master/develop)
+  ✅ Git 托管平台项目 ID 从 git remote URL 自动检测 (支持 HTTP/SSH)
+  ✅ Git 托管平台 base URL 从 git remote URL 自动检测
+  ✅ 目标分支自动检测 (main/master/develop)
+  ✅ Git 访问令牌基于当前仓库主机名自动选择
 
 Files Required:
   conandata.yml     Conan data file in current directory

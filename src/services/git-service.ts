@@ -6,6 +6,7 @@ import { StringUtil } from '../utils/string-util.js';
  */
 export class GitService {
   private readonly shell: Shell;
+  private static readonly protocolCache = new Map<string, string>();
 
   constructor(shell?: Shell) {
     this.shell = shell || new Shell();
@@ -28,7 +29,7 @@ export class GitService {
     if (filePaths.length === 0) {
       return '';
     }
-    
+
     const files = filePaths.join(' ');
     return this.shell.run(`git diff ${files}`).trim();
   }
@@ -65,17 +66,17 @@ export class GitService {
    */
   commit(message: string): void {
     console.log(`📝 Committing changes...`);
-    
+
     // Use PowerShell here-string for multiline messages
     if (message.includes('\n')) {
       // Escape single quotes in the message for PowerShell here-string
       const escapedMessage = message.replace(/'/g, "''");
-      
+
       // Use PowerShell here-string syntax with git commit -m
       const powershellCommand = `git commit -m @'
 ${escapedMessage}
 '@`;
-      
+
       this.shell.run(powershellCommand);
     } else {
       // For single line messages, use standard escaping
@@ -136,6 +137,252 @@ ${escapedMessage}
       return this.shell.run(`git remote get-url ${remote}`).trim();
     } catch (error) {
       return `Error getting URL for remote '${remote}'`;
+    }
+  }
+
+  /**
+   * Extract hostname from Git remote URL
+   * @param remoteUrl Git remote URL (optional, will get current remote if not provided)
+   * @returns Hostname (e.g., 'github.com', 'gitlab.example.com')
+   */
+  extractHostnameFromRemoteUrl(remoteUrl?: string): string {
+    const url = remoteUrl || this.getRemoteUrl();
+
+    try {
+      // Handle SSH URLs (git@hostname:user/repo.git)
+      if (url.startsWith('git@')) {
+        const match = url.match(/git@([^:]+):/);
+        return match ? match[1] : '';
+      }
+
+      // Handle HTTPS URLs (https://hostname/user/repo.git)
+      if (url.startsWith('http')) {
+        const urlObj = new URL(url);
+        return urlObj.hostname;
+      }
+
+      return '';
+    } catch (error) {
+      console.warn(`⚠️  Could not extract hostname from Git URL: ${url}`);
+      return '';
+    }
+  }
+
+  /**
+   * Extract base URL from Git remote URL with protocol detection
+   * @param remoteUrl Git remote URL (optional, will get current remote if not provided)
+   * @returns Base URL (e.g., "https://github.com", "https://gitlab.example.com")
+   */
+  async extractBaseUrlFromRemoteUrl(remoteUrl?: string): Promise<string> {
+    const url = remoteUrl || this.getRemoteUrl();
+
+    try {
+      // Handle SSH URLs (git@hostname:user/repo.git)
+      if (url.startsWith('git@')) {
+        const match = url.match(/git@([^:]+):/);
+        if (match) {
+          const hostname = match[1];
+          // Auto-detect protocol by trying HTTPS first, then fallback to HTTP
+          return await this.detectProtocolForHost(hostname);
+        }
+      }
+
+      // Handle HTTPS/HTTP URLs (https://hostname/user/repo.git)
+      if (url.startsWith('http')) {
+        const match = url.match(/^(https?:\/\/[^\/]+)/);
+        return match ? match[1] : '';
+      }
+
+      return '';
+    } catch (error) {
+      console.warn(`⚠️  Could not extract base URL from Git URL: ${url}`);
+      return '';
+    }
+  }
+
+  /**
+   * Parse project path from Git remote URL
+   * @param remoteUrl Git remote URL (optional, will get current remote if not provided)
+   * @returns Project path (e.g., "user/repo")
+   */
+  parseProjectPathFromUrl(remoteUrl?: string): string | null {
+    const url = remoteUrl || this.getRemoteUrl();
+
+    try {
+      // Handle SSH URLs (git@hostname:user/repo.git)
+      const sshMatch = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+      if (sshMatch) {
+        return sshMatch[2];
+      }
+
+      // Handle HTTPS/HTTP URLs (https://hostname/user/repo.git)
+      const httpMatch = url.match(/^https?:\/\/[^\/]+\/(.+?)(?:\.git)?$/);
+      if (httpMatch) {
+        return httpMatch[1];
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`❌ Failed to parse git remote URL: ${url}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Detect the appropriate protocol (HTTPS/HTTP) for a given hostname
+   * @param hostname The hostname to check
+   * @returns Base URL with detected protocol
+   */
+  private async detectProtocolForHost(hostname: string): Promise<string> {
+    // Check cache first
+    if (GitService.protocolCache.has(hostname)) {
+      return GitService.protocolCache.get(hostname)!;
+    }
+
+    // Well-known HTTPS-only hosts
+    const httpsOnlyHosts = [
+      'github.com',
+      'gitlab.com',
+      'bitbucket.org',
+      'gitee.com',
+      'codeberg.org',
+      'git.sr.ht',
+      'coding.net'
+    ];
+
+    if (httpsOnlyHosts.includes(hostname)) {
+      const result = `https://${hostname}`;
+      GitService.protocolCache.set(hostname, result);
+      return result;
+    }
+    // Start probing
+    return await this.probeProtocolForHost(hostname);
+  }
+
+  /**
+   * Probe a hostname to detect HTTPS/HTTP support in background
+   * Updates the cache when detection is complete
+   * @param hostname The hostname to probe
+   * @returns Promise<string> The URL with the detected protocol
+   */
+  private async probeProtocolForHost(hostname: string): Promise<string> {
+    const httpsUrl = `https://${hostname}`;
+    try {
+      console.log(`🔍 Probing protocol support for: ${hostname}`);
+      // Try HTTPS first (modern standard)
+      if (await this.isProtocolSupported(httpsUrl)) {
+        console.log(`✅ HTTPS supported for: ${hostname}`);
+        GitService.protocolCache.set(hostname, httpsUrl);
+        return httpsUrl;
+      }
+
+      // Fallback to HTTP
+      const httpUrl = `http://${hostname}`;
+      if (await this.isProtocolSupported(httpUrl)) {
+        console.log(`✅ HTTP supported for: ${hostname} (HTTPS not available)`);
+        GitService.protocolCache.set(hostname, httpUrl);
+        return httpUrl;
+      }
+
+      // If both fail, keep HTTPS as fallback (already in cache)
+      console.warn(`⚠️  Could not connect to ${hostname}, keeping HTTPS as default`);
+    } catch (error) {
+      console.warn(`⚠️  Error probing ${hostname}:`, error);
+    }
+    return httpsUrl;
+  }
+
+  /**
+   * Get detected protocol for hostname (synchronous, may return cached result)
+   * @param hostname The hostname to check
+   * @returns Base URL with detected protocol
+   */
+  async getDetectedProtocolForHost(hostname: string): Promise<string> {
+    return await this.detectProtocolForHost(hostname);
+  }
+
+  /**
+   * Clear protocol cache for a specific hostname or all hostnames
+   * @param hostname Optional hostname to clear, if not provided clears all cache
+   */
+  static clearProtocolCache(hostname?: string): void {
+    if (hostname) {
+      GitService.protocolCache.delete(hostname);
+      console.log(`🗑️  Cleared protocol cache for: ${hostname}`);
+    } else {
+      GitService.protocolCache.clear();
+      console.log(`🗑️  Cleared all protocol cache`);
+    }
+  }
+
+  /**
+   * Get current protocol cache (for debugging)
+   * @returns Copy of current cache entries
+   */
+  static getProtocolCache(): Record<string, string> {
+    return Object.fromEntries(GitService.protocolCache);
+  }
+
+  /**
+   * Force re-detection of protocol for hostname (asynchronous)
+   * @param hostname The hostname to re-detect
+   * @returns Promise<Base URL with detected protocol>
+   */
+  async forceDetectProtocolForHost(hostname: string): Promise<string> {
+    // Clear cache for this hostname
+    GitService.protocolCache.delete(hostname);
+
+    // Try HTTPS first
+    const httpsUrl = `https://${hostname}`;
+    if (await this.isProtocolSupported(httpsUrl)) {
+      console.log(`✅ HTTPS supported for: ${hostname}`);
+      GitService.protocolCache.set(hostname, httpsUrl);
+      return httpsUrl;
+    }
+
+    // Fallback to HTTP
+    const httpUrl = `http://${hostname}`;
+    if (await this.isProtocolSupported(httpUrl)) {
+      console.log(`✅ HTTP supported for: ${hostname} (HTTPS not available)`);
+      GitService.protocolCache.set(hostname, httpUrl);
+      return httpUrl;
+    }
+
+    // If both fail, use HTTPS as fallback
+    console.warn(`⚠️  Could not connect to ${hostname}, defaulting to HTTPS`);
+    GitService.protocolCache.set(hostname, httpsUrl);
+    return httpsUrl;
+  }
+
+  /**
+   * Test if a protocol is supported for a given URL
+   * @param baseUrl Base URL to test (e.g., "https://example.com")
+   * @returns True if the protocol is supported
+   */
+  private async isProtocolSupported(baseUrl: string): Promise<boolean> {
+    // Create an AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+    try {
+
+      // Try to make a simple HEAD request to test connectivity
+      await fetch(baseUrl, {
+        method: 'HEAD',
+        headers: {
+          'User-Agent': 'AIFlow-Git-Probe/1.0'
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      // Any response (even 404) indicates the protocol is supported
+      return true;
+    } catch (error) {
+      // Connection failed, protocol not supported or host unreachable
+      return false;
+    }
+    finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -203,8 +450,8 @@ ${escapedMessage}
       console.log(`📁 Repository Root: ${repoRoot}`);
 
       // Check if we're in the repository
-      const isInRepo = currentDir.startsWith(repoRoot.replace(/\//g, '\\')) || 
-                      currentDir.startsWith(repoRoot.replace(/\\/g, '/'));
+      const isInRepo = currentDir.startsWith(repoRoot.replace(/\//g, '\\')) ||
+        currentDir.startsWith(repoRoot.replace(/\\/g, '/'));
       console.log(`🎯 Working in Repository: ${isInRepo ? '✅ Yes' : '❌ No'}`);
 
       // Current branch
@@ -229,7 +476,7 @@ ${escapedMessage}
       // Repository status
       const hasUncommitted = this.hasUncommittedChanges();
       const hasStaged = this.hasStagedChanges();
-      
+
       console.log(`📊 Repository Status:`);
       console.log(`   Uncommitted changes: ${hasUncommitted ? '✅ Yes' : '❌ No'}`);
       console.log(`   Staged changes: ${hasStaged ? '✅ Yes' : '❌ No'}`);
@@ -242,10 +489,10 @@ ${escapedMessage}
         files.forEach(file => {
           const status = file.substring(0, 2);
           const fileName = file.substring(3);
-          const statusIcon = status.includes('M') ? '📝' : 
-                           status.includes('A') ? '➕' : 
-                           status.includes('D') ? '➖' : 
-                           status.includes('??') ? '❓' : '📄';
+          const statusIcon = status.includes('M') ? '📝' :
+            status.includes('A') ? '➕' :
+              status.includes('D') ? '➖' :
+                status.includes('??') ? '❓' : '📄';
           console.log(`   ${statusIcon} ${fileName}`);
         });
       }

@@ -27,5 +27,5 @@
     "verbatimModuleSyntax": false             // 允许模块语法转换
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", ".vscode", ".aiflow", ".git"]
 }

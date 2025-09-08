@@ -57,15 +57,16 @@
   "author": "heisir",
   "license": "MIT",
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.3.1",
     "cross-env": "^10.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.2",
-    "@types/js-yaml": "^4.0.9"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "dotenv": "^17.2.2",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "winston": "^3.17.0"
   },
   "engines": {
     "node": ">=18.0.0"

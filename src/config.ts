@@ -73,10 +73,9 @@ export interface AiflowConfig {
     model?: string;
   };
 
-  // GitLab Configuration
-  gitlab?: {
-    token?: string;
-    baseUrl?: string;
+  // Git Access Tokens for multiple platforms
+  git_access_tokens?: {
+    [hostname: string]: string;
   };
 
   // Conan Configuration
@@ -175,8 +174,6 @@ export class ConfigLoader {
       'OPENAI_KEY': 'openai.key',
       'OPENAI_BASE_URL': 'openai.baseUrl',
       'OPENAI_MODEL': 'openai.model',
-      'GITLAB_TOKEN': 'gitlab.token',
-      'GITLAB_BASE_URL': 'gitlab.baseUrl',
       'CONAN_REMOTE_BASE_URL': 'conan.remoteBaseUrl',
       'CONAN_REMOTE_REPO': 'conan.remoteRepo',
       'WECOM_WEBHOOK': 'wecom.webhook',
@@ -184,6 +181,16 @@ export class ConfigLoader {
       'SQUASH_COMMITS': 'git.squashCommits',
       'REMOVE_SOURCE_BRANCH': 'git.removeSourceBranch',
     };
+
+    // Handle git access token environment variables
+    for (const [envKey, envValue] of Object.entries(process.env)) {
+      if (envKey.startsWith('GIT_ACCESS_TOKEN_') && envValue) {
+        const hostname = envKey.replace('GIT_ACCESS_TOKEN_', '').toLowerCase().replace(/_/g, '.');
+        const configPath = `git_access_tokens.${hostname}`;
+        this.setNestedValue(config, configPath, envValue);
+        config._sources.set(configPath, { source: 'env' });
+      }
+    }
 
     for (const [envKey, configPath] of Object.entries(envMapping)) {
       const envValue = process.env[envKey];
@@ -322,16 +329,20 @@ export class ConfigLoader {
       { path: 'openai.key', name: 'OPENAI_KEY', description: 'OpenAI API key for AI-powered features' },
       { path: 'openai.baseUrl', name: 'OPENAI_BASE_URL', description: 'OpenAI API base URL for API requests' },
       { path: 'openai.model', name: 'OPENAI_MODEL', description: 'OpenAI model name for AI operations' },
-      { path: 'gitlab.token', name: 'GITLAB_TOKEN', description: 'GitLab personal access token for API operations' },
     ];
 
     const optionalConfigs = [
-      { path: 'gitlab.baseUrl', name: 'GITLAB_BASE_URL', description: 'GitLab base URL (optional, auto-detected)' },
       { path: 'conan.remoteBaseUrl', name: 'CONAN_REMOTE_BASE_URL', description: 'Conan remote base URL (required for conan operations)' },
       { path: 'conan.remoteRepo', name: 'CONAN_REMOTE_REPO', description: 'Conan remote repository name (optional)' },
       { path: 'wecom.webhook', name: 'WECOM_WEBHOOK', description: 'WeChat Work webhook URL (optional)' },
       { path: 'wecom.enable', name: 'WECOM_ENABLE', description: 'WeChat Work notifications enable flag (optional)' },
     ];
+
+    // Check if at least one git access token is configured
+    const gitTokens = this.getNestedValue(config, 'git_access_tokens');
+    if (!gitTokens || Object.keys(gitTokens).length === 0) {
+      this.warnings.push(`⚠️  No Git access tokens configured. Please configure at least one token for Git operations`);
+    }
 
     // Check required configurations
     for (const { path, name, description } of requiredConfigs) {
@@ -388,9 +399,10 @@ export class ConfigLoader {
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-3.5-turbo',
       },
-      gitlab: {
-        token: 'your-gitlab-token',
-        baseUrl: 'https://gitlab.example.com',
+      git_access_tokens: {
+        'github.com': 'your-github-access-token',
+        'gitlab.example.com': 'your-gitlab-access-token',
+        'gitee.com': 'your-gitee-access-token',
       },
       conan: {
         remoteBaseUrl: 'https://conan.example.com',
@@ -430,13 +442,19 @@ openai:
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: ${exampleConfig.openai?.model}
 
-# GitLab 配置 - 用于仓库操作和合并请求管理
-gitlab:
-  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
-  token: ${exampleConfig.gitlab?.token}
+# Git 访问令牌配置 - 支持多个Git托管平台
+git_access_tokens:
+  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+  github.com: ${exampleConfig.git_access_tokens?.['github.com']}
   
-  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
-  baseUrl: ${exampleConfig.gitlab?.baseUrl}
+  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
+  gitlab.example.com: ${exampleConfig.git_access_tokens?.['gitlab.example.com']}
+  
+  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
+  gitee.com: ${exampleConfig.git_access_tokens?.['gitee.com']}
+  
+  # 您可以添加更多Git托管平台的令牌
+  # 格式: 主机名: 访问令牌
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
@@ -505,6 +523,31 @@ export function getConfigValue<T>(
 }
 
 /**
+ * Get Git access token for a specific hostname
+ * @param config Loaded configuration
+ * @param hostname Git hostname (e.g., 'github.com', 'gitlab.example.com')
+ * @returns Access token for the hostname or undefined if not found
+ */
+export function getGitAccessToken(
+  config: LoadedConfig,
+  hostname: string
+): string | undefined {
+  const tokens = getConfigValue(config, 'git_access_tokens', {} as Record<string, string>);
+  return tokens?.[hostname];
+}
+
+/**
+ * Get all configured Git access tokens
+ * @param config Loaded configuration
+ * @returns Object with hostname -> token mappings
+ */
+export function getAllGitAccessTokens(
+  config: LoadedConfig
+): Record<string, string> {
+  return getConfigValue(config, 'git_access_tokens', {} as Record<string, string>) || {};
+}
+
+/**
  * Parse CLI arguments to config format
  * Supports both long (--key) and short (-k) argument formats
  */
@@ -545,12 +588,14 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         config.openai = { ...config.openai, model: value };
         i++;
         break;
-      case 'gitlab-token':
-        config.gitlab = { ...config.gitlab, token: value };
-        i++;
-        break;
-      case 'gitlab-base-url':
-        config.gitlab = { ...config.gitlab, baseUrl: value };
+      case 'git-access-token':
+        // Parse format: hostname=token
+        if (value && value.includes('=')) {
+          const [hostname, token] = value.split('=', 2);
+          if (hostname && token) {
+            config.git_access_tokens = { ...config.git_access_tokens, [hostname]: token };
+          }
+        }
         i++;
         break;
       case 'conan-remote-base-url':
@@ -593,9 +638,8 @@ function getShortArgMapping(shortKey: string): string {
     'obu': 'openai-base-url',
     'om': 'openai-model',
 
-    // GitLab shortcuts (GitLab Token, GitLab Base Url)
-    'gt': 'gitlab-token',
-    'gbu': 'gitlab-base-url',
+    // Git access token shortcuts (Git Access Token)
+    'gat': 'git-access-token',
 
     // Conan shortcuts (Conan Remote Base Url, Conan Remote Repo)
     'crbu': 'conan-remote-base-url',
@@ -627,9 +671,12 @@ OpenAI 配置 - AI功能支持:
   -obu, --openai-base-url <url>         OpenAI API地址 (必需，API请求端点)
   -om, --openai-model <model>           OpenAI模型 (必需，如gpt-3.5-turbo、gpt-4)
 
-GitLab 配置 - 仓库操作:
-  -gt, --gitlab-token <token>           GitLab访问令牌 (必需，需要api和write_repository权限)
-  -gbu, --gitlab-base-url <url>         GitLab地址 (可选，留空时自动检测)
+Git 访问令牌配置 - 多平台支持:
+  -gat, --git-access-token <host=token> Git访问令牌 (格式: 主机名=令牌)
+                                        支持多个平台，如:
+                                        github.com=ghp_xxxxx
+                                        gitlab.example.com=glpat_xxxxx
+                                        gitee.com=gitee_xxxxx
 
 Conan 配置 - C++包管理:
   -crbu, --conan-remote-base-url <url>  Conan仓库API地址 (Conan操作时必需)
@@ -645,13 +692,21 @@ Git 配置 - 合并请求行为:
 
 使用示例:
   # 基本配置
-  aiflow -ok sk-abc123 -gt glpat-xyz789
+  aiflow -ok sk-abc123 -gat github.com=ghp_xyz789
+  
+  # 多平台访问令牌
+  aiflow -ok sk-abc123 -gat gitlab.example.com=glpat-abc123 -gat github.com=ghp_def456
   
   # 完整配置
-  aiflow -ok sk-abc123 -gt glpat-xyz789 -crbu https://conan.company.com -we true
+  aiflow -ok sk-abc123 -gat gitlab.company.com=glpat-xyz789 -crbu https://conan.company.com -we true
   
   # 使用长参数名
-  aiflow --openai-key sk-abc123 --gitlab-token glpat-xyz789 --wecom-enable false
+  aiflow --openai-key sk-abc123 --git-access-token gitlab.example.com=glpat-xyz789
+
+环境变量格式:
+  GIT_ACCESS_TOKEN_GITHUB_COM=ghp_xxxxx
+  GIT_ACCESS_TOKEN_GITLAB_EXAMPLE_COM=glpat_xxxxx
+  GIT_ACCESS_TOKEN_GITEE_COM=gitee_xxxxx
 
 配置文件位置:
   本地: .aiflow/config.yaml
@@ -684,7 +739,7 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     // Collect configuration
     const configData: any = {
       openai: {},
-      gitlab: {},
+      git_access_tokens: {},
       conan: {},
       wecom: {},
       git: {}
@@ -701,13 +756,27 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     const openaiModel = await question('  OpenAI 模型 [gpt-3.5-turbo]: ');
     configData.openai.model = openaiModel.trim() || 'gpt-3.5-turbo';
 
-    // GitLab configuration
-    console.log('\n🦊 GitLab 配置:');
-    const gitlabToken = await question('  GitLab 访问令牌 (必需): ');
-    if (gitlabToken.trim()) configData.gitlab.token = gitlabToken.trim();
-
-    const gitlabBaseUrl = await question('  GitLab 地址 (可选，留空自动检测): ');
-    if (gitlabBaseUrl.trim()) configData.gitlab.baseUrl = gitlabBaseUrl.trim();
+    // Git access tokens configuration
+    console.log('\n🔑 Git 访问令牌配置:');
+    configData.git_access_tokens = {};
+    
+    console.log('  您可以配置多个Git平台的访问令牌，直接回车跳过');
+    // Git platform tokens with loop for multiple platforms
+    while (true) {
+      const gitHost = await question('  Git 平台主机名 (如: github.com, gitlab.example.com, gitee.com，留空结束): ');
+      if (!gitHost.trim()) break;
+      
+      const gitToken = await question(`  ${gitHost.trim()} 访问令牌: `);
+      if (gitToken.trim()) {
+        configData.git_access_tokens[gitHost.trim()] = gitToken.trim();
+        console.log(`    ✅ 已添加 ${gitHost.trim()} 的访问令牌`);
+      }
+      
+      const continueAdding = await question('  是否继续添加其他 Git 平台令牌？(y/N): ');
+      if (continueAdding.toLowerCase() !== 'y' && continueAdding.toLowerCase() !== 'yes') {
+        break;
+      }
+    }
 
     // Conan configuration
     console.log('\n📦 Conan 配置:');
@@ -768,13 +837,18 @@ openai:
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: ${configData.openai.model}
 
-# GitLab 配置 - 用于仓库操作和合并请求管理
-gitlab:
-  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
-  token: ${configData.gitlab.token || 'your-gitlab-token'}
+# Git 访问令牌配置 - 支持多个Git托管平台
+git_access_tokens:
+${Object.keys(configData.git_access_tokens || {}).length > 0 
+  ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
+  : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+  # github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
-  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
-  ${configData.gitlab.baseUrl ? `baseUrl: ${configData.gitlab.baseUrl}` : '# baseUrl: https://gitlab.example.com'}
+  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
+  # gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
+  
+  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
+  # gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx`}
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
