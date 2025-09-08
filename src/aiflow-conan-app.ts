@@ -65,6 +65,8 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
         return;
       }
 
+      const changedFiles = this.git.getChangedFiles(5);
+
       // Step 3: Determine target branch
       const targetBranch = this.getTargetBranch();
       console.log(`🎯 Target branch: ${targetBranch}`);
@@ -76,7 +78,7 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
       const aiBranch = StringUtil.sanitizeBranch(branch);
-      const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
       const branchName = `${gitUser}/conan-update-${packageName}-${aiBranch}-${dateSuffix}`;
 
       console.log("✅ Generated branch name:", branchName);
@@ -109,7 +111,6 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
 
       // Step 9: Send notification
       console.log(`📢 Sending notification...`);
-      const changedFiles = this.git.getChangedFiles(5);
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
         await this.wecom.sendMergeRequestNotice(
           branchName,

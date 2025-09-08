@@ -155,6 +155,7 @@ export abstract class BaseAiflowApp {
         console.error("❌ No staged changes found. Please run git add . first.");
         process.exit(1);
       }
+      const changedFiles = this.git.getChangedFiles(5);
 
       // Step 2: Determine target branch
       const targetBranch = this.getTargetBranch();
@@ -170,7 +171,7 @@ export abstract class BaseAiflowApp {
       // Step 4: Create branch name
       const gitUser = this.git.getUserName();
       const aiBranch = StringUtil.sanitizeBranch(branch);
-      const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
       const branchName = `${gitUser}/${aiBranch}-${dateSuffix}`;
       console.log("✅ Generated branch name:", branchName);
 
@@ -193,7 +194,6 @@ export abstract class BaseAiflowApp {
       console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
       // Step 7: Send notification
-      const changedFiles = this.git.getChangedFiles(5);
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
         console.log(`📢 Sending notification...`);
         await this.wecom.sendMergeRequestNotice(branchName, targetBranch, mrUrl, commit, changedFiles);
@@ -207,7 +207,7 @@ export abstract class BaseAiflowApp {
       const isGitHub = this.gitPlatform.getPlatformName() === 'github';
       const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
       const requestAbbr = isGitHub ? 'PR' : 'MR';
-      
+
       const mrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
 
 📋 ${requestAbbr} 链接: ${mrUrl}
