@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
@@ -11,7 +11,8 @@
   },
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run postbuild",
+    "postbuild": "node -e \"require('fs').chmodSync('dist/aiflow-app.js', '755'); require('fs').chmodSync('dist/aiflow-conan-app.js', '755');\"",
     "start": "node --loader ts-node/esm src/index.ts",
     "dev": "node --watch --loader ts-node/esm src/index.ts",
     "debug-brk": "node --inspect-brk --loader ts-node/esm src/index.ts",
@@ -29,7 +30,8 @@
     "aiflow": "node --loader ts-node/esm src/aiflow-app.ts",
     "aiflow-conan": "node --loader ts-node/esm src/aiflow-conan-app.ts",
     "git-info": "node --loader ts-node/esm src/git-info.ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
     "ai",
