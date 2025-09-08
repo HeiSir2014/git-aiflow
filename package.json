@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
@@ -31,8 +31,12 @@
     "test:shell-multiline": "npm run node-ts -- src/test/shell-multiline.test.ts",
     "test:gitlab-auto": "npm run node-ts -- src/test/gitlab-auto-detect.test.ts",
     "aiflow": "npm run node-ts -- src/aiflow-app.ts",
+    "aiflow:debug": "npm run node-ts -- --inspect=9229 src/aiflow-app.ts",
+    "aiflow:debug-brk": "npm run node-ts -- --inspect-brk=9229 src/aiflow-app.ts",
     "aiflow:dev": "npm run node-ts -- --watch src/aiflow-app.ts",
     "aiflow-conan": "npm run node-ts -- src/aiflow-conan-app.ts",
+    "aiflow-conan:debug": "npm run node-ts -- --inspect=9230 src/aiflow-conan-app.ts",
+    "aiflow-conan:debug-brk": "npm run node-ts -- --inspect-brk=9230 src/aiflow-conan-app.ts",
     "aiflow-conan:dev": "npm run node-ts -- --watch src/aiflow-conan-app.ts",
     "git-info": "npm run node-ts -- src/git-info.ts",
     "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",

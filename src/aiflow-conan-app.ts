@@ -1,66 +1,31 @@
 #!/usr/bin/env node
 
-import { Shell } from './shell.js';
-import { HttpClient } from './http/http-client.js';
+import { BaseAiflowApp } from './aiflow-app.js';
 import { StringUtil } from './utils/string-util.js';
-import { GitService } from './services/git-service.js';
-import { OpenAiService } from './services/openai-service.js';
-import { GitlabService } from './services/gitlab-service.js';
-import { WecomNotifier } from './services/wecom-notifier.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
-import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
+import { parseCliArgs, getConfigValue, getCliHelp, initConfig, loadEnvironmentVariables } from './config.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Initialize environment variables at startup
+loadEnvironmentVariables();
 
 /**
  * Conan package update application with automated MR creation
  */
-export class ConanPkgUpdateApp {
-  private readonly shell = new Shell();
-  private readonly http = new HttpClient();
-
-  public config!: LoadedConfig;
-  private openai!: OpenAiService;
-  private gitlab!: GitlabService;
-  private wecom!: WecomNotifier;
+export class ConanPkgUpdateApp extends BaseAiflowApp {
   private conan!: ConanService;
   private fileUpdater!: FileUpdaterService;
 
-  private readonly git = new GitService(this.shell);
-
   /**
-   * Initialize services with configuration
+   * Initialize services with configuration (override to add Conan-specific services)
    */
-  private async initializeServices(cliConfig: any = {}): Promise<void> {
-    // Load configuration with CLI overrides
-    this.config = await configLoader.loadConfig(cliConfig);
+  protected async initializeServices(cliConfig: any = {}): Promise<void> {
+    // Call parent initialization
+    await super.initializeServices(cliConfig);
 
-    // Display configuration warnings if any
-    const warnings = configLoader.getWarnings();
-    if (warnings.length > 0) {
-      console.log('\n⚠️  配置警告:');
-      warnings.forEach(warning => console.log(`  ${warning}`));
-      console.log('');
-    }
-
-    // Initialize services with configuration values
-    this.openai = new OpenAiService(
-      getConfigValue(this.config, 'openai.key', '') || '',
-      getConfigValue(this.config, 'openai.baseUrl', 'https://api.openai.com/v1') || 'https://api.openai.com/v1',
-      getConfigValue(this.config, 'openai.model', 'gpt-3.5-turbo') || 'gpt-3.5-turbo',
-      this.http
-    );
-
-    this.gitlab = new GitlabService(
-      getConfigValue(this.config, 'gitlab.token', '') || '',
-      getConfigValue(this.config, 'gitlab.baseUrl', '') || '',
-      this.git,
-      this.http
-    );
-
-    this.wecom = new WecomNotifier(
-      getConfigValue(this.config, 'wecom.webhook', '') || ''
-    );
-
+    // Initialize Conan-specific services
     this.conan = new ConanService(
       getConfigValue(this.config, 'conan.remoteBaseUrl', '') || '',
       this.http
@@ -69,47 +34,6 @@ export class ConanPkgUpdateApp {
     this.fileUpdater = new FileUpdaterService(this.conan, this.git);
   }
 
-  /**
-   * Get target branch for merge request (default branch or fallback)
-   * @returns Target branch name
-   */
-  private getTargetBranch(): string {
-    try {
-      // Try to get the default branch from git remote
-      const currentBranch = this.git.getCurrentBranch();
-      try {
-        this.shell.run(`git rev-parse --verify origin/${currentBranch}`).trim();
-        return currentBranch;
-      } catch (fallbackError) {
-        console.warn(`⚠️  Could not determine target branch, check: ${fallbackError}`);
-      }
-
-      // Common default branch names to try
-      const defaultBranches = ['main', 'master', 'develop'];
-
-      // If current branch is one of the default branches, use it
-      if (defaultBranches.includes(currentBranch)) {
-        return currentBranch;
-      }
-
-      // Otherwise, try to find the default branch by checking which exists
-      for (const branch of defaultBranches) {
-        try {
-          // Check if remote branch exists
-          this.shell.run(`git rev-parse --verify origin/${branch}`);
-          return branch;
-        } catch {
-          // Branch doesn't exist, try next
-        }
-      }
-
-      // Fallback to master if nothing else works
-      return 'master';
-    } catch (error) {
-      console.warn(`⚠️  Could not determine target branch, using 'master': ${error}`);
-      return 'master';
-    }
-  }
 
   /**
    * Update package and create MR
@@ -147,7 +71,7 @@ export class ConanPkgUpdateApp {
 
       // Step 4: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const {commit, branch} = await this.openai.generateCommitAndBranch(diff);
+      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
 
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
@@ -229,32 +153,19 @@ ${changedFiles.map(file => `• ${file}`).join('\n')}
   }
 
   /**
-   * Validate configuration
+   * Validate configuration (override to add Conan-specific validation)
    */
-  validateConfiguration(): void {
-    const requiredConfigs = [
-      {key: 'openai.key', name: 'OpenAI API Key'},
-      {key: 'openai.baseUrl', name: 'OpenAI Base URL'},
-      {key: 'openai.model', name: 'OpenAI Model'},
-      {key: 'gitlab.token', name: 'GitLab Token'}
-    ];
+  protected validateConfiguration(): void {
+    // Call parent validation
+    super.validateConfiguration();
 
-    const missing: string[] = [];
-
-    for (const config of requiredConfigs) {
-      const value = getConfigValue(this.config, config.key, '');
-      if (!value) {
-        missing.push(config.name);
-      }
+    // Additional Conan-specific validation
+    const conanBaseUrl = getConfigValue(this.config, 'conan.remoteBaseUrl', '');
+    if (!conanBaseUrl) {
+      console.warn(`⚠️  Conan remote base URL not configured. Some features may not work.`);
     }
 
-    if (missing.length > 0) {
-      console.error(`❌ Missing required configuration: ${missing.join(', ')}`);
-      console.error(`💡 Please run 'aiflow-conan init' to configure or check your config files`);
-      process.exit(1);
-    }
-
-    console.log(`✅ Configuration validation passed`);
+    console.log(`✅ Conan configuration validation passed`);
   }
 
   /**
@@ -378,7 +289,10 @@ Files Required:
   }
 }
 
-ConanPkgUpdateApp.main().catch((error) => {
-  console.error('❌ Unhandled error:', error);
-  process.exit(1);
-});
+const isMain = path.basename(fileURLToPath(import.meta.url)).toLowerCase() === path.basename(process.argv[1]).toLowerCase();
+if (isMain) {
+  ConanPkgUpdateApp.main().catch((error) => {
+    console.error('❌ Unhandled error:', error);
+    process.exit(1);
+  });
+}

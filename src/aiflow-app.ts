@@ -8,24 +8,26 @@ import { OpenAiService } from './services/openai-service.js';
 import { GitlabService } from './services/gitlab-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 /**
- * Git Auto MR application for automated merge request creation
+ * Base class for AI-powered Git automation applications
  */
-export class GitAutoMrApp {
-  private readonly shell = new Shell();
-  private readonly http = new HttpClient();
-  private readonly git = new GitService(this.shell);
+export abstract class BaseAiflowApp {
+  protected readonly shell = new Shell();
+  protected readonly http = new HttpClient();
+  protected readonly git = new GitService(this.shell);
 
-  private config!: LoadedConfig;
-  private openai!: OpenAiService;
-  private gitlab!: GitlabService;
-  private wecom!: WecomNotifier;
+  protected config!: LoadedConfig;
+  protected openai!: OpenAiService;
+  protected gitlab!: GitlabService;
+  protected wecom!: WecomNotifier;
 
   /**
    * Initialize services with configuration
    */
-  private async initializeServices(cliConfig: any = {}): Promise<void> {
+  protected async initializeServices(cliConfig: any = {}): Promise<void> {
     // Load configuration with priority merging
     this.config = await configLoader.loadConfig(cliConfig);
 
@@ -61,7 +63,7 @@ export class GitAutoMrApp {
    * Get target branch for merge request (default branch or fallback)
    * @returns Target branch name
    */
-  private getTargetBranch(): string {
+  protected getTargetBranch(): string {
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.git.getCurrentBranch();
@@ -100,6 +102,35 @@ export class GitAutoMrApp {
   }
 
   /**
+   * Validate required configuration for the application
+   */
+  protected validateConfiguration(): void {
+    const requiredConfigs = [
+      { key: 'openai.key', name: 'OpenAI API Key' },
+      { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
+      { key: 'openai.model', name: 'OpenAI Model' },
+      { key: 'gitlab.token', name: 'GitLab Token' }
+    ];
+
+    const missing: string[] = [];
+
+    for (const config of requiredConfigs) {
+      const value = getConfigValue(this.config, config.key, '');
+      if (!value) {
+        missing.push(config.name);
+      }
+    }
+
+    if (missing.length > 0) {
+      console.error(`❌ Missing required configuration: ${missing.join(', ')}`);
+      console.error(`💡 Please run 'aiflow init' to configure or check your config files`);
+      process.exit(1);
+    }
+
+    console.log(`✅ Configuration validation passed`);
+  }
+
+  /**
    * Create automated merge request from staged changes
    */
   async run(): Promise<void> {
@@ -122,7 +153,7 @@ export class GitAutoMrApp {
 
       // Step 3: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const {commit, branch} = await this.openai.generateCommitAndBranch(diff);
+      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
 
       console.log("✅ Generated commit message:", commit);
       console.log("✅ Generated branch suggestion:", branch);
@@ -201,6 +232,13 @@ ${changedFiles.map(file => `• ${file}`).join('\n')}
       process.exit(1);
     }
   }
+
+}
+
+/**
+ * Git Auto MR application for automated merge request creation
+ */
+export class GitAutoMrApp extends BaseAiflowApp {
 
 
   /**
@@ -300,13 +338,19 @@ Examples:
     // Initialize services with configuration
     await app.initializeServices(cliConfig);
 
+    // Validate configuration before starting
+    app.validateConfiguration();
+
     // Run the MR creation workflow
     await app.run();
   }
 }
 
 // Only run if this file is executed directly
-GitAutoMrApp.main().catch((error) => {
-  console.error('❌ Unhandled error:', error);
-  process.exit(1);
-});
+const isMain = path.basename(fileURLToPath(import.meta.url)).toLowerCase() === path.basename(process.argv[1]).toLowerCase();
+if (isMain) {
+  GitAutoMrApp.main().catch((error) => {
+    console.error('❌ Unhandled error:', error);
+    process.exit(1);
+  });
+}
