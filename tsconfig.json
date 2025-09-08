@@ -1,28 +1,31 @@
 {
   "compilerOptions": {
     "target": "ES2020",                       // 输出 ES2020
-    "module": "ESNext",                        // 使用 ESM
-    "moduleResolution": "node",                // Node.js 风格模块解析
-    "esModuleInterop": false,                  // 避免默认导入污染
+    "module": "ESNext",                       // 使用 ESM
+    "moduleResolution": "node",               // Node.js 风格模块解析
+    "esModuleInterop": true,                  // 支持 CommonJS 互操作
+    "allowSyntheticDefaultImports": true,     // 支持默认导入
     "forceConsistentCasingInFileNames": true, // 文件名大小写严格
-    "strict": true,                            // 开启严格模式
-    "noImplicitAny": true,                     // 禁止隐式 any
-    "noImplicitThis": true,                    // this 必须有类型
-    "strictNullChecks": true,                  // 严格空值检查
-    "strictFunctionTypes": true,               // 严格函数参数检查
-    "noUnusedLocals": true,                    // 未使用变量报错
-    "noUnusedParameters": true,                // 未使用参数报错
-    "noFallthroughCasesInSwitch": true,       // switch 穿透检查
-    "allowSyntheticDefaultImports": true,      // 支持默认导入
-    "skipLibCheck": true,                      // 跳过库检查
-    "sourceMap": true,                         // 生成 source map
-    "outDir": "dist",                          // 编译输出目录
-    "rootDir": "./src",                        // 根目录
-    "typeRoots": ["node_modules/@types"],      // 类型根目录
-    "lib": ["ES2020", "DOM"],                  // 支持 ES2020 和 fetch/DOM API
-    "resolveJsonModule": true,                 // 可以 import json
-    "incremental": false                        // 增量编译
+    "strict": true,                           // 开启严格模式
+    "noImplicitAny": true,                    // 禁止隐式 any
+    "noImplicitThis": true,                   // this 必须有类型
+    "strictNullChecks": true,                 // 严格空值检查
+    "strictFunctionTypes": true,              // 严格函数参数检查
+    "noUnusedLocals": true,                   // 未使用变量报错
+    "noUnusedParameters": true,               // 未使用参数报错
+    "noFallthroughCasesInSwitch": true,      // switch 穿透检查
+    "skipLibCheck": true,                     // 跳过库检查
+    "sourceMap": true,                        // 生成 source map
+    "declaration": true,                      // 生成类型声明文件
+    "declarationMap": true,                   // 生成声明文件映射
+    "outDir": "dist",                         // 编译输出目录
+    "rootDir": "./src",                       // 根目录
+    "typeRoots": ["node_modules/@types"],     // 类型根目录
+    "lib": ["ES2020", "DOM"],                 // 支持 ES2020 和 fetch/DOM API
+    "resolveJsonModule": true,                // 可以 import json
+    "incremental": false,                     // 增量编译
+    "verbatimModuleSyntax": false             // 允许模块语法转换
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
