@@ -5,7 +5,7 @@ import { HttpClient } from './http/http-client.js';
 import { StringUtil } from './utils/string-util.js';
 import { GitService } from './services/git-service.js';
 import { OpenAiService } from './services/openai-service.js';
-import { GitlabService } from './services/gitlab-service.js';
+import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo } from './services/git-platform-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
 import path from 'path';
@@ -21,7 +21,7 @@ export abstract class BaseAiflowApp {
 
   protected config!: LoadedConfig;
   protected openai!: OpenAiService;
-  protected gitlab!: GitlabService;
+  protected gitPlatform!: GitPlatformService;
   protected wecom!: WecomNotifier;
 
   /**
@@ -39,12 +39,14 @@ export abstract class BaseAiflowApp {
       this.http
     );
 
-    this.gitlab = new GitlabService(
-      getConfigValue(this.config, 'gitlab.token', '') || '',
-      getConfigValue(this.config, 'gitlab.baseUrl', '') || '',
-      this.git,
-      this.http
-    );
+    // Create platform-specific service using factory (fully automatic)
+    const platformService = await GitPlatformServiceFactory.create();
+
+    if (!platformService) {
+      throw new Error('Unsupported Git platform. Currently supported: GitLab, GitHub');
+    }
+
+    this.gitPlatform = platformService;
 
     this.wecom = new WecomNotifier(
       getConfigValue(this.config, 'wecom.webhook', '') || ''
@@ -109,7 +111,6 @@ export abstract class BaseAiflowApp {
       { key: 'openai.key', name: 'OpenAI API Key' },
       { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
       { key: 'openai.model', name: 'OpenAI Model' },
-      { key: 'gitlab.token', name: 'GitLab Token' }
     ];
 
     const missing: string[] = [];
@@ -119,6 +120,14 @@ export abstract class BaseAiflowApp {
       if (!value) {
         missing.push(config.name);
       }
+    }
+
+    // Validate Git access token for current repository
+    try {
+      getGitAccessTokenForCurrentRepo(this.config, this.git);
+    } catch (error) {
+      missing.push('Git Access Token for current repository');
+      console.error(`❌ ${error instanceof Error ? error.message : 'Unknown Git token error'}`);
     }
 
     if (missing.length > 0) {
@@ -174,14 +183,14 @@ export abstract class BaseAiflowApp {
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
 
-      const mrUrl = await this.gitlab.createMergeRequest(
+      const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         commit,
         squashCommits,
         removeSourceBranch
       );
-      console.log("🎉 Merge Request created:", mrUrl);
+      console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
       // Step 7: Send notification
       const changedFiles = this.git.getChangedFiles(5);
@@ -195,9 +204,13 @@ export abstract class BaseAiflowApp {
 
       // Step 8: Print the MR info and copy to clipboard
       // Format MR information for sharing
-      const mrInfo = `🎉 合并请求创建成功，请及时进行代码审查！
+      const isGitHub = this.gitPlatform.getPlatformName() === 'github';
+      const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
+      const requestAbbr = isGitHub ? 'PR' : 'MR';
+      
+      const mrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
 
-📋 MR 链接: ${mrUrl}
+📋 ${requestAbbr} 链接: ${mrUrl}
 
 📝 提交信息:
 ${commit}
@@ -209,9 +222,10 @@ ${commit}
 📁 变更文件 (${changedFiles.length} 个):
 ${changedFiles.map(file => `• ${file}`).join('\n')}
 
-⚙️ MR 配置:
+⚙️ ${requestAbbr} 配置:
 • 压缩提交: ${getConfigValue(this.config, 'git.squashCommits', true) ? '✅ 是' : '❌ 否'}
 • 删除源分支: ${getConfigValue(this.config, 'git.removeSourceBranch', true) ? '✅ 是' : '❌ 否'}
+• 平台: ${this.gitPlatform.getPlatformName().toUpperCase()}
 `;
       console.log(mrInfo);
 
@@ -263,8 +277,7 @@ Configuration Options (可以通过 CLI 参数覆盖配置文件):
   -ok, --openai-key <key>               OpenAI API 密钥
   -obu, --openai-base-url <url>         OpenAI API 地址
   -om, --openai-model <model>           OpenAI 模型
-  -gt, --gitlab-token <token>           GitLab 访问令牌
-  -gbu, --gitlab-base-url <url>         GitLab 地址
+  -gat, --git-access-token <host=token> Git 访问令牌 (格式: 主机名=令牌)
   -crbu, --conan-remote-base-url <url>  Conan 仓库 API 地址
   -crr, --conan-remote-repo <repo>      Conan 仓库名称
   -ww, --wecom-webhook <url>            企业微信 Webhook 地址
@@ -286,9 +299,10 @@ Prerequisites:
   4. 环境变量 (最低优先级)
 
 Auto-Detection Features:
-  ✅ GitLab 项目 ID 从 git remote URL 自动检测 (支持 HTTP/SSH)
-  ✅ GitLab base URL 从 git remote URL 自动检测
+  ✅ Git 托管平台项目 ID 从 git remote URL 自动检测 (支持 HTTP/SSH)
+  ✅ Git 托管平台 base URL 从 git remote URL 自动检测
   ✅ 目标分支自动检测 (main/master/develop)
+  ✅ Git 访问令牌基于当前仓库主机名自动选择
 
 Workflow:
   1. 分析暂存的更改
@@ -298,10 +312,11 @@ Workflow:
   5. 发送企业微信通知
 
 Examples:
-  aiflow init                    # 交互式初始化本地配置
-  aiflow init --global           # 交互式初始化全局配置
-  aiflow                         # 使用配置文件运行
-  aiflow -ok sk-123 -gt glpat-456 # 使用 CLI 参数覆盖配置
+  aiflow init                                            # 交互式初始化本地配置
+  aiflow init --global                                   # 交互式初始化全局配置
+  aiflow                                                 # 使用配置文件运行
+  aiflow -ok sk-123 -gat github.com=ghp_456             # 使用 CLI 参数覆盖配置
+  aiflow -gat gitlab.example.com=glpat-456 -we true     # 多平台访问令牌配置
 `);
   }
 

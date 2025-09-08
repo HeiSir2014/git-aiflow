@@ -12,13 +12,19 @@ openai:
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: gpt-3.5-turbo
 
-# GitLab 配置 - 用于仓库操作和合并请求管理
-gitlab:
-  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
-  token: your-gitlab-token
+# Git 访问令牌配置 - 支持多个Git托管平台
+git_access_tokens:
+  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
-  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
-  baseUrl: https://gitlab.example.com
+  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
+  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
+  
+  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
+  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
+  
+  # 您可以添加更多Git托管平台的令牌
+  # 格式: 主机名: 访问令牌
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
