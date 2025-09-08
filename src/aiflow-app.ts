@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { config } from 'dotenv';
 import { Shell } from './shell.js';
 import { HttpClient } from './http/http-client.js';
 import { StringUtil } from './utils/string-util.js';
@@ -9,39 +8,6 @@ import { OpenAiService } from './services/openai-service.js';
 import { GitlabService } from './services/gitlab-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs';
-
-// ESM/CommonJS compatibility helper
-function getDirname(): string {
-  // ESM environment
-  if (typeof import.meta !== 'undefined' && import.meta.url) {
-    return path.dirname(fileURLToPath(import.meta.url));
-  }
-  // CommonJS environment
-  if (typeof __dirname !== 'undefined') {
-    return __dirname;
-  }
-  // Fallback
-  return process.cwd();
-}
-
-// Load environment variables with ESM/CommonJS compatibility
-const currentDir = getDirname();
-let envPath = path.join(currentDir, '.env');
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(currentDir, '../.env');
-}
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(process.cwd(), '.env');
-}
-if (fs.existsSync(envPath)) {
-  config({ path: envPath });
-} else {
-  // Fallback to default dotenv behavior
-  config();
-}
 
 /**
  * Git Auto MR application for automated merge request creation
@@ -99,6 +65,12 @@ export class GitAutoMrApp {
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.git.getCurrentBranch();
+      try {
+        this.shell.run(`git rev-parse --verify origin/${currentBranch}`).trim();
+        return currentBranch;
+      } catch (fallbackError) {
+        console.warn(`⚠️  Could not determine target branch, check: ${fallbackError}`);
+      }
 
       // Common default branch names to try
       const defaultBranches = ['main', 'master', 'develop'];
@@ -150,7 +122,7 @@ export class GitAutoMrApp {
 
       // Step 3: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
+      const {commit, branch} = await this.openai.generateCommitAndBranch(diff);
 
       console.log("✅ Generated commit message:", commit);
       console.log("✅ Generated branch suggestion:", branch);

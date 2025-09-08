@@ -41,8 +41,8 @@ ${fileList}
     await this.http.requestJson(
       this.webhook,
       "POST",
-      { "Content-Type": "application/json" },
-      JSON.stringify({ msgtype: "markdown", markdown: { content: md } })
+      {"Content-Type": "application/json"},
+      JSON.stringify({msgtype: "markdown", markdown: {content: md}})
     );
   }
 }

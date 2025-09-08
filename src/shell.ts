@@ -9,7 +9,7 @@ export class Shell {
   constructor() {
     // Detect if pwsh exists
     try {
-      const pwshCheck = spawnSync("pwsh", ["-c", "echo ok"], { encoding: "utf-8", cwd: process.cwd() });
+      const pwshCheck = spawnSync("pwsh", ["-c", "echo ok"], {encoding: "utf-8", cwd: process.cwd()});
       if (!pwshCheck.error) {
         this.shellCmd = "pwsh";
       } else {
@@ -43,7 +43,7 @@ export class Shell {
       ];
       
       console.debug(`shell run: ${this.shellCmd} ${pwsh_args.slice(0, -1).join(" ")} -EncodedCommand [base64]`);
-      const result = spawnSync(this.shellCmd, pwsh_args, { encoding: "utf-8", shell: true, cwd: process.cwd() });
+      const result = spawnSync(this.shellCmd, pwsh_args, {encoding: "utf-8", shell: true, cwd: process.cwd()});
       
       if (result.error) {
         console.error(`shell run failed: ${result.error.message}`);
@@ -57,7 +57,7 @@ export class Shell {
       const pwsh_args = ["-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass", "-Command", pwsh_command];
       
       console.debug(`shell run: ${this.shellCmd} ${pwsh_args.join(" ")}`);
-      const result = spawnSync(this.shellCmd, pwsh_args, { encoding: "utf-8", shell: true, cwd: process.cwd() });
+      const result = spawnSync(this.shellCmd, pwsh_args, {encoding: "utf-8", shell: true, cwd: process.cwd()});
       
       if (result.error) {
         console.error(`shell run failed: ${result.error.message}`);

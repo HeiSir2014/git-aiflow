@@ -8,7 +8,7 @@ export class HttpClient {
     headers: Record<string, string>,
     body?: string
   ): Promise<T> {
-    const resp = await fetch(url, { method, headers, body });
+    const resp = await fetch(url, {method, headers, body});
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
     }

@@ -147,7 +147,7 @@ export class GitlabService {
     squash: boolean = true,
     removeSourceBranch: boolean = true
   ): Promise<string> {
-    type MrResp = { web_url: string };
+    type MrResp = {web_url: string};
 
     // Get project ID (auto-detect if needed)
     const projectId = await this.getProjectId();
