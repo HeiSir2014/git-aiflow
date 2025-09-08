@@ -74,12 +74,12 @@ async function testConfigSystem() {
   // Test 5: Verify argument mappings
   console.log('\n📋 Test 5: Verifying short/long argument mappings...');
   const testCases = [
-    { short: ['-ok', 'test'], long: ['--openai-key', 'test'], description: 'OpenAI key' },
-    { short: ['-gt', 'test'], long: ['--gitlab-token', 'test'], description: 'GitLab token' },
-    { short: ['-crbu', 'test'], long: ['--conan-remote-base-url', 'test'], description: 'Conan URL' },
-    { short: ['-sc', 'false'], long: ['--squash-commits', 'false'], description: 'Squash commits' },
-    { short: ['-ww', 'test'], long: ['--wecom-webhook', 'test'], description: 'WeChat Work webhook' },
-    { short: ['-we', 'true'], long: ['--wecom-enable', 'true'], description: 'WeChat Work enable' },
+    {short: ['-ok', 'test'], long: ['--openai-key', 'test'], description: 'OpenAI key'},
+    {short: ['-gt', 'test'], long: ['--gitlab-token', 'test'], description: 'GitLab token'},
+    {short: ['-crbu', 'test'], long: ['--conan-remote-base-url', 'test'], description: 'Conan URL'},
+    {short: ['-sc', 'false'], long: ['--squash-commits', 'false'], description: 'Squash commits'},
+    {short: ['-ww', 'test'], long: ['--wecom-webhook', 'test'], description: 'WeChat Work webhook'},
+    {short: ['-we', 'true'], long: ['--wecom-enable', 'true'], description: 'WeChat Work enable'},
   ];
 
   for (const testCase of testCases) {

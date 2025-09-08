@@ -1,5 +1,5 @@
 import { ConanService } from '../index.js';
-import { config } from 'dotenv';
+import { loadEnvironmentVariables } from '../config.js';
 
 /**
  * Test ConanService with real HTTP client using actual Conan API
@@ -121,7 +121,7 @@ async function testConanService(): Promise<void> {
 
 // Run tests
 if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
-  config();
+  loadEnvironmentVariables();
   testConanService()
     .catch((error) => {
       console.error('Test suite failed:', error);

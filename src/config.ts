@@ -3,6 +3,8 @@ import path from 'path';
 import os from 'os';
 import yaml from 'js-yaml';
 import readline from 'readline';
+import { config as dotenvConfig } from 'dotenv';
+import { fileURLToPath } from 'url';
 
 /**
  * Get cross-platform user data directory for global config
@@ -18,6 +20,48 @@ function getUserDataDir(): string {
       return path.join(homeDir, 'Library', 'Application Support');
     default:
       return process.env.XDG_CONFIG_HOME || path.join(homeDir, '.config');
+  }
+}
+
+/**
+ * ESM/CommonJS compatibility helper for getting current directory.
+ * @return {string} The current directory path
+ */
+function getDirname(): string {
+  // ESM environment
+  if (typeof import.meta !== 'undefined' && import.meta.url) {
+    return path.dirname(fileURLToPath(import.meta.url));
+  }
+  // CommonJS environment
+  if (typeof __dirname !== 'undefined') {
+    return __dirname;
+  }
+  // Fallback
+  return process.cwd();
+}
+
+/**
+ * Load environment variables with ESM/CommonJS compatibility.
+ * Searches for .env file in current directory, parent directory, and working directory.
+ * This function should be called early in the application lifecycle.
+ */
+export function loadEnvironmentVariables(): void {
+  const currentDir = getDirname();
+  let envPath = path.join(currentDir, '.env');
+
+  if (!fs.existsSync(envPath)) {
+    envPath = path.join(currentDir, '../.env');
+  }
+
+  if (!fs.existsSync(envPath)) {
+    envPath = path.join(process.cwd(), '.env');
+  }
+
+  if (fs.existsSync(envPath)) {
+    dotenvConfig({ path: envPath, debug: false, quiet: true });
+  } else {
+    // Fallback to default dotenv behavior
+    dotenvConfig({ debug: false, quiet: true });
   }
 }
 
@@ -123,6 +167,10 @@ export class ConfigLoader {
    * Merge environment variables into config
    */
   private mergeEnvConfig(config: LoadedConfig): void {
+
+    // Initialize environment variables
+    loadEnvironmentVariables();
+
     const envMapping = {
       'OPENAI_KEY': 'openai.key',
       'OPENAI_BASE_URL': 'openai.baseUrl',
@@ -153,7 +201,7 @@ export class ConfigLoader {
     // Handle boolean values
     if (value.toLowerCase() === 'true') return true;
     if (value.toLowerCase() === 'false') return false;
-    
+
     // Return as string for other values
     return value;
   }
@@ -231,7 +279,7 @@ export class ConfigLoader {
           if (!target[key as keyof AiflowConfig]) {
             (target as any)[key] = {};
           }
-          
+
           // Recursively merge nested objects
           for (const [nestedKey, nestedValue] of Object.entries(value)) {
             if (nestedValue !== undefined && nestedValue !== null) {
@@ -361,7 +409,7 @@ export class ConfigLoader {
     // Create local example config
     const localConfigDir = path.join(process.cwd(), '.aiflow');
     const localConfigPath = path.join(localConfigDir, 'config.example.yaml');
-    
+
     if (!fs.existsSync(localConfigDir)) {
       fs.mkdirSync(localConfigDir, { recursive: true });
     }
@@ -421,7 +469,7 @@ git:
     // Create global example config
     const globalConfigDir = path.join(this.getUserDataDir(), ConfigLoader.GLOBAL_CONFIG_DIR);
     const globalExamplePath = path.join(globalConfigDir, 'config.example.yaml');
-    
+
     if (!fs.existsSync(globalConfigDir)) {
       fs.mkdirSync(globalConfigDir, { recursive: true });
     }
@@ -462,12 +510,12 @@ export function getConfigValue<T>(
  */
 export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
   const config: Partial<AiflowConfig> = {};
-  
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     let key: string;
     let isShort = false;
-    
+
     if (arg.startsWith('--')) {
       key = arg.slice(2);
     } else if (arg.startsWith('-') && !arg.startsWith('--')) {
@@ -476,14 +524,14 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
     } else {
       continue;
     }
-    
+
     const value = args[i + 1];
-    
+
     // Map short arguments to their long equivalents
     if (isShort) {
       key = getShortArgMapping(key);
     }
-    
+
     switch (key) {
       case 'openai-key':
         config.openai = { ...config.openai, key: value };
@@ -531,7 +579,7 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         break;
     }
   }
-  
+
   return config;
 }
 
@@ -544,24 +592,24 @@ function getShortArgMapping(shortKey: string): string {
     'ok': 'openai-key',
     'obu': 'openai-base-url',
     'om': 'openai-model',
-    
+
     // GitLab shortcuts (GitLab Token, GitLab Base Url)
     'gt': 'gitlab-token',
     'gbu': 'gitlab-base-url',
-    
+
     // Conan shortcuts (Conan Remote Base Url, Conan Remote Repo)
     'crbu': 'conan-remote-base-url',
     'crr': 'conan-remote-repo',
-    
+
     // WeChat Work shortcuts (WeChat Work webhook, WeChat Work Enable)
     'ww': 'wecom-webhook',
     'we': 'wecom-enable',
-    
+
     // Git shortcuts (Squash Commits, Remove Source Branch)
     'sc': 'squash-commits',
     'rsb': 'remove-source-branch',
   };
-  
+
   return shortArgMap[shortKey] || shortKey;
 }
 
@@ -760,14 +808,14 @@ git:
     const userDataDir = getUserDataDir();
     const configDir = path.join(userDataDir, 'aiflow');
     configPath = path.join(configDir, 'config.yaml');
-    
+
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
   } else {
     const configDir = path.join(process.cwd(), '.aiflow');
     configPath = path.join(configDir, 'config.yaml');
-    
+
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }

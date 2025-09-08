@@ -19,8 +19,8 @@ export class OpenAiService {
   /**
    * Generate commit message and branch name in English
    */
-  async generateCommitAndBranch(diff: string): Promise<{ commit: string; branch: string }> {
-    type OpenAiResp = { choices: { message: { content: string } }[] };
+  async generateCommitAndBranch(diff: string): Promise<{commit: string; branch: string}> {
+    type OpenAiResp = {choices: {message: {content: string}}[]};
 
     const body = JSON.stringify({
       model: this.model,
@@ -82,7 +82,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
 
     try {
       const content = JSON.parse(cleanContent);
-      return { commit: content.commit, branch: content.branch };
+      return {commit: content.commit, branch: content.branch};
     } catch (error) {
       console.error("Failed to parse AI response:", cleanContent);
       throw new Error(`Invalid JSON response from AI: ${error}`);

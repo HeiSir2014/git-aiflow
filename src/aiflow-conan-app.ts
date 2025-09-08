@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { config } from 'dotenv';
 import { Shell } from './shell.js';
 import { HttpClient } from './http/http-client.js';
 import { StringUtil } from './utils/string-util.js';
@@ -11,39 +10,7 @@ import { WecomNotifier } from './services/wecom-notifier.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs';
 
-// ESM/CommonJS compatibility helper
-function getDirname(): string {
-  // ESM environment
-  if (typeof import.meta !== 'undefined' && import.meta.url) {
-    return path.dirname(fileURLToPath(import.meta.url));
-  }
-  // CommonJS environment
-  if (typeof __dirname !== 'undefined') {
-    return __dirname;
-  }
-  // Fallback
-  return process.cwd();
-}
-
-// Load environment variables with ESM/CommonJS compatibility
-const currentDir = getDirname();
-let envPath = path.join(currentDir, '.env');
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(currentDir, '../.env');
-}
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(process.cwd(), '.env');
-}
-if (fs.existsSync(envPath)) {
-  config({ path: envPath });
-} else {
-  // Fallback to default dotenv behavior
-  config();
-}
 /**
  * Conan package update application with automated MR creation
  */
@@ -110,6 +77,12 @@ export class ConanPkgUpdateApp {
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.git.getCurrentBranch();
+      try {
+        this.shell.run(`git rev-parse --verify origin/${currentBranch}`).trim();
+        return currentBranch;
+      } catch (fallbackError) {
+        console.warn(`⚠️  Could not determine target branch, check: ${fallbackError}`);
+      }
 
       // Common default branch names to try
       const defaultBranches = ['main', 'master', 'develop'];
@@ -174,7 +147,7 @@ export class ConanPkgUpdateApp {
 
       // Step 4: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
+      const {commit, branch} = await this.openai.generateCommitAndBranch(diff);
 
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
@@ -260,10 +233,10 @@ ${changedFiles.map(file => `• ${file}`).join('\n')}
    */
   validateConfiguration(): void {
     const requiredConfigs = [
-      { key: 'openai.key', name: 'OpenAI API Key' },
-      { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
-      { key: 'openai.model', name: 'OpenAI Model' },
-      { key: 'gitlab.token', name: 'GitLab Token' }
+      {key: 'openai.key', name: 'OpenAI API Key'},
+      {key: 'openai.baseUrl', name: 'OpenAI Base URL'},
+      {key: 'openai.model', name: 'OpenAI Model'},
+      {key: 'gitlab.token', name: 'GitLab Token'}
     ];
 
     const missing: string[] = [];

@@ -1,5 +1,5 @@
 import { GitlabService } from '../index.js';
-import { config } from 'dotenv';
+import { loadEnvironmentVariables } from '../config.js';
 /**
  * Test GitlabService createMergeRequest method
  */
@@ -107,7 +107,7 @@ async function testWithRealHttp(): Promise<void> {
 
 // Run tests
 if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
-  config();
+  loadEnvironmentVariables();
   testGitlabService()
     .then(() => testWithRealHttp())
     .catch((error) => {
