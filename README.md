@@ -381,6 +381,57 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
+**6. Windows PowerShell 执行策略错误**
+
+**问题描述**：
+在 Windows 系统中运行 `aiflow` 命令时可能出现以下错误：
+
+```powershell
+aiflow : 无法加载文件 C:\Users\user\AppData\Roaming\npm\aiflow.ps1，因为在此系统上禁止运行脚本。
+有关详细信息，请参阅 https://go.microsoft.com/fwlink/?LinkID=135170 中的 about_Execution_Policies。
+所在位置 行:1 字符: 1
++ aiflow
++ ~~~~~~
+   + CategoryInfo          : SecurityError: (:) []，PSSecurityException
+   + FullyQualifiedErrorId : UnauthorizedAccess
+```
+
+**原因分析**：
+Windows PowerShell 默认的执行策略限制了脚本的运行，这是一个安全机制，防止恶意脚本执行。
+
+**解决方案**：
+
+方法一：**修改当前用户执行策略（推荐）**
+```powershell
+# 以管理员身份运行 PowerShell，然后执行：
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+方法二：**临时绕过执行策略**
+```powershell
+# 每次运行时临时绕过（不推荐）
+PowerShell -ExecutionPolicy Bypass -Command "aiflow"
+```
+
+方法三：**使用 npx 直接运行**
+```bash
+# 如果上述方法都不行，可以使用 npx
+npx aiflow
+```
+
+**验证修复**：
+```powershell
+# 检查当前执行策略
+Get-ExecutionPolicy -List
+
+# 应该看到 CurrentUser 的策略为 RemoteSigned
+```
+
+**安全说明**：
+- `RemoteSigned` 策略要求从互联网下载的脚本必须由受信任的发布者签名
+- 本地创建的脚本可以运行而无需签名
+- 这是一个相对安全的设置，比完全开放的 `Unrestricted` 策略更安全
+
 ### 日志系统
 
 AIFlow 使用基于 Winston 的企业级日志系统：

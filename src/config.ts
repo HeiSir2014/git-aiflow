@@ -950,8 +950,9 @@ git:
   let configPath: string;
   if (isGlobal) {
     configPath = globalConfigPath;
-    if (!fs.existsSync(globalConfigPath)) {
-      fs.mkdirSync(globalConfigPath, { recursive: true });
+    const configDir = path.dirname(globalConfigPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
     }
   } else {
     const configDir = path.join(process.cwd(), '.aiflow');

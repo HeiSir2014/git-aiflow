@@ -378,6 +378,58 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
+**6. Windows PowerShell Execution Policy Error**
+
+**Problem Description**:
+When running the `aiflow` command on Windows systems, you may encounter the following error:
+
+```powershell
+aiflow : File C:\Users\user\AppData\Roaming\npm\aiflow.ps1 cannot be loaded because running scripts 
+is disabled on this system. For more information, see about_Execution_Policies at 
+https://go.microsoft.com/fwlink/?LinkID=135170.
+At line:1 char:1
++ aiflow
++ ~~~~~~
+   + CategoryInfo          : SecurityError: (:) [], PSSecurityException
+   + FullyQualifiedErrorId : UnauthorizedAccess
+```
+
+**Root Cause**:
+Windows PowerShell's default execution policy restricts script execution as a security mechanism to prevent malicious scripts from running.
+
+**Solutions**:
+
+Method 1: **Modify Current User Execution Policy (Recommended)**
+```powershell
+# Run PowerShell as Administrator, then execute:
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+Method 2: **Temporarily Bypass Execution Policy**
+```powershell
+# Temporarily bypass for each run (not recommended)
+PowerShell -ExecutionPolicy Bypass -Command "aiflow"
+```
+
+Method 3: **Use npx to Run Directly**
+```bash
+# If the above methods don't work, use npx
+npx aiflow
+```
+
+**Verify Fix**:
+```powershell
+# Check current execution policy
+Get-ExecutionPolicy -List
+
+# You should see CurrentUser policy as RemoteSigned
+```
+
+**Security Notes**:
+- `RemoteSigned` policy requires scripts downloaded from the internet to be signed by a trusted publisher
+- Locally created scripts can run without signatures
+- This is a relatively secure setting, safer than the fully open `Unrestricted` policy
+
 ### Logging System
 
 AIFlow uses an enterprise-grade logging system based on Winston:

@@ -71,9 +71,10 @@ export class Shell {
       return "";
     }
     
-    const output = result.stdout.trim().replace(/[\r\n]+/g, "\n");
+    const output = result.stdout.replace(/[\r\n]+/g, "\n");
     this.logger.debug(`Encoded command completed (${duration}ms)`, { 
       command: command.substring(0, 100) + (command.length > 100 ? '...' : ''),
+      output: output,
       outputLength: output.length,
       exitCode: result.status 
     });
@@ -96,9 +97,10 @@ export class Shell {
       return "";
     }
     
-    const output = result.stdout.trim().replace(/[\r\n]+/g, "\n");
+    const output = result.stdout.replace(/[\r\n]+/g, "\n");
     this.logger.debug(`Command completed (${duration}ms)`, { 
       command,
+      output,
       outputLength: output.length,
       exitCode: result.status 
     });
