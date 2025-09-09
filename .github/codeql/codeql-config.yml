@@ -1,0 +1,25 @@
+name: "AIFlow CodeQL Configuration"
+
+disable-default-queries: false
+
+queries:
+  - uses: security-and-quality
+
+query-filters:
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: js/debugger-statement
+
+paths:
+  - src
+  
+paths-ignore:
+  - src/test
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - node_modules
+  - dist
+
+packs:
+  - codeql/javascript-queries
