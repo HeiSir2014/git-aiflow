@@ -337,7 +337,14 @@ export class GitPlatformServiceFactory {
       }
 
       // Test GitHub API endpoint
-      const githubApiUrl = baseUrl.includes('github.com') ? 'https://api.github.com' : `${baseUrl}/api/v3`;
+      // Use URL parsing to avoid unsafe substring check (see CodeQL warning)
+      let hostname;
+      try {
+        hostname = new URL(baseUrl).hostname;
+      } catch {
+        hostname = '';
+      }
+      const githubApiUrl = hostname === 'github.com' ? 'https://api.github.com' : `${baseUrl}/api/v3`;
       GitPlatformServiceFactory.logger.debug(`Testing GitHub API: ${githubApiUrl}`);
       
       const controller2 = new AbortController();
