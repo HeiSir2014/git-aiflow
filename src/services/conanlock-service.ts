@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { escapeRegExp } from 'lodash';
+import * as lodash from 'lodash';
 
 /**
  * Interface for Conan lock file entry
@@ -79,7 +79,7 @@ export class ConanLockService {
     
     // Pattern to match package lock entries
     // Matches: "packageName/version#hash%timestamp"
-    const safePackageName = escapeRegExp(packageName);
+    const safePackageName = lodash.escapeRegExp(packageName);
     const lockPattern = new RegExp(
       `"${safePackageName}\/[^#]+#[^%]+%[^"]+"`,'g'
     );
@@ -139,7 +139,7 @@ export class ConanLockService {
   getCurrentLockInfo(packageName: string): ConanLockEntry | null {
     const content = this.readContent();
     
-    const safePackageName = escapeRegExp(packageName);
+    const safePackageName = lodash.escapeRegExp(packageName);
     // Pattern to find package lock entry
     const lockPattern = new RegExp(
       `"(${safePackageName}\/[^#]+#[^%]+%[^"]+)"`, 'g'

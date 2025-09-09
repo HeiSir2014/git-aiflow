@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.11",
+  "version": "1.0.13",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
@@ -66,6 +66,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
+    "@types/lodash": "^4.17.20",
     "@types/node": "^24.3.1",
     "cross-env": "^10.0.0",
     "ts-node": "^10.9.2",
@@ -75,11 +76,11 @@
     "clipboardy": "^4.0.0",
     "dotenv": "^17.2.2",
     "js-yaml": "^4.1.0",
-    "winston": "^3.17.0",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "winston": "^3.17.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",
