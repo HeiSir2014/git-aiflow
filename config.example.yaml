@@ -49,3 +49,14 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: true
+
+# 合并请求指派配置 - 配置指派人和审查者
+merge_request:
+  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
+  assignee_id: 0
+  
+  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
+  assignee_ids: []
+  
+  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
+  reviewer_ids: []

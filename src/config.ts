@@ -95,6 +95,13 @@ export interface AiflowConfig {
     squashCommits?: boolean;
     removeSourceBranch?: boolean;
   };
+
+  // Merge Request Configuration
+  merge_request?: {
+    assignee_id?: number;
+    assignee_ids?: number[];
+    reviewer_ids?: number[];
+  };
 }
 
 export interface ConfigSource {
@@ -180,6 +187,9 @@ export class ConfigLoader {
       'WECOM_ENABLE': 'wecom.enable',
       'SQUASH_COMMITS': 'git.squashCommits',
       'REMOVE_SOURCE_BRANCH': 'git.removeSourceBranch',
+      'MERGE_REQUEST_ASSIGNEE_ID': 'merge_request.assignee_id',
+      'MERGE_REQUEST_ASSIGNEE_IDS': 'merge_request.assignee_ids',
+      'MERGE_REQUEST_REVIEWER_IDS': 'merge_request.reviewer_ids',
     };
 
     // Handle git access token environment variables
@@ -195,7 +205,25 @@ export class ConfigLoader {
     for (const [envKey, configPath] of Object.entries(envMapping)) {
       const envValue = process.env[envKey];
       if (envValue !== undefined) {
-        this.setNestedValue(config, configPath, this.parseEnvValue(envValue));
+        let parsedValue = this.parseEnvValue(envValue);
+        
+        // Handle array fields for merge request configuration
+        if (configPath === 'merge_request.assignee_ids' || configPath === 'merge_request.reviewer_ids') {
+          if (typeof parsedValue === 'string') {
+            // Parse comma-separated string to number array
+            parsedValue = parsedValue.split(',').map(id => {
+              const num = parseInt(id.trim(), 10);
+              return isNaN(num) ? 0 : num;
+            }).filter(id => id >= 0);
+          }
+        } else if (configPath === 'merge_request.assignee_id') {
+          if (typeof parsedValue === 'string') {
+            const num = parseInt(parsedValue, 10);
+            parsedValue = isNaN(num) ? 0 : num;
+          }
+        }
+        
+        this.setNestedValue(config, configPath, parsedValue);
         config._sources.set(configPath, { source: 'env' });
       }
     }
@@ -416,6 +444,11 @@ export class ConfigLoader {
         squashCommits: true,
         removeSourceBranch: true,
       },
+      merge_request: {
+        assignee_id: 0,
+        assignee_ids: [],
+        reviewer_ids: [],
+      },
     };
 
     // Create local example config
@@ -479,6 +512,17 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: ${exampleConfig.git?.removeSourceBranch}
+
+# 合并请求指派配置 - 配置指派人和审查者
+merge_request:
+  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
+  assignee_id: ${exampleConfig.merge_request?.assignee_id || 0}
+  
+  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
+  assignee_ids: []
+  
+  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
+  reviewer_ids: []
 `;
 
     fs.writeFileSync(localConfigPath, yamlContent);
@@ -622,6 +666,33 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         config.git = { ...config.git, removeSourceBranch: value !== 'false' };
         i++;
         break;
+      case 'merge-request-assignee-id':
+        const assigneeId = parseInt(value, 10);
+        config.merge_request = { ...config.merge_request, assignee_id: isNaN(assigneeId) ? 0 : assigneeId };
+        i++;
+        break;
+      case 'merge-request-assignee-ids':
+        // Parse comma-separated string to number array
+        if (value) {
+          const assigneeIds = value.split(',').map(id => {
+            const num = parseInt(id.trim(), 10);
+            return isNaN(num) ? 0 : num;
+          }).filter(id => id >= 0);
+          config.merge_request = { ...config.merge_request, assignee_ids: assigneeIds };
+        }
+        i++;
+        break;
+      case 'merge-request-reviewer-ids':
+        // Parse comma-separated string to number array
+        if (value) {
+          const reviewerIds = value.split(',').map(id => {
+            const num = parseInt(id.trim(), 10);
+            return isNaN(num) ? 0 : num;
+          }).filter(id => id >= 0);
+          config.merge_request = { ...config.merge_request, reviewer_ids: reviewerIds };
+        }
+        i++;
+        break;
     }
   }
 
@@ -652,6 +723,11 @@ function getShortArgMapping(shortKey: string): string {
     // Git shortcuts (Squash Commits, Remove Source Branch)
     'sc': 'squash-commits',
     'rsb': 'remove-source-branch',
+
+    // Merge Request shortcuts (Merge Request Assignee ID, Assignee IDs, Reviewer IDs)
+    'mrai': 'merge-request-assignee-id',
+    'mrais': 'merge-request-assignee-ids',
+    'mrris': 'merge-request-reviewer-ids',
   };
 
   return shortArgMap[shortKey] || shortKey;
@@ -694,6 +770,11 @@ Git 配置 - 合并请求行为:
   -sc, --squash-commits <bool>          压缩提交 (可选，合并时压缩多个提交)
   -rsb, --remove-source-branch <bool>   删除源分支 (可选，合并后删除分支)
 
+合并请求配置 - 指派和审查者:
+  -mrai, --merge-request-assignee-id <id>      单个指派人用户ID (可选，设置为0取消指派)
+  -mrais, --merge-request-assignee-ids <ids>   指派人用户ID列表 (可选，逗号分隔，如: 1,2,3)
+  -mrris, --merge-request-reviewer-ids <ids>   审查者用户ID列表 (可选，逗号分隔，如: 1,2,3)
+
 使用示例:
   # 基本配置
   aiflow -ok sk-abc123 -gat github.com=ghp_xyz789
@@ -704,13 +785,19 @@ Git 配置 - 合并请求行为:
   # 完整配置
   aiflow -ok sk-abc123 -gat gitlab.company.com=glpat-xyz789 -crbu https://conan.company.com -we true
   
+  # 配置合并请求指派和审查者
+  aiflow -ok sk-abc123 -mrai 123 -mrris 456,789
+  
   # 使用长参数名
-  aiflow --openai-key sk-abc123 --git-access-token gitlab.example.com=glpat-xyz789
+  aiflow --openai-key sk-abc123 --git-access-token gitlab.example.com=glpat-xyz789 --merge-request-assignee-ids 1,2,3
 
 环境变量格式:
   GIT_ACCESS_TOKEN_GITHUB_COM=ghp_xxxxx
   GIT_ACCESS_TOKEN_GITLAB_EXAMPLE_COM=glpat_xxxxx
   GIT_ACCESS_TOKEN_GITEE_COM=gitee_xxxxx
+  MERGE_REQUEST_ASSIGNEE_ID=123
+  MERGE_REQUEST_ASSIGNEE_IDS=1,2,3
+  MERGE_REQUEST_REVIEWER_IDS=4,5,6
 
 配置文件位置:
   本地: .aiflow/config.yaml
@@ -755,7 +842,8 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       git_access_tokens: {},
       conan: {},
       wecom: {},
-      git: {}
+      git: {},
+      merge_request: {}
     };
 
     // Try to load existing config file
@@ -769,7 +857,8 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
             git_access_tokens: existingConfig.git_access_tokens || {},
             conan: existingConfig.conan || {},
             wecom: existingConfig.wecom || {},
-            git: existingConfig.git || {}
+            git: existingConfig.git || {},
+            merge_request: existingConfig.merge_request || {}
           };
           console.log('📋 发现现有配置文件，将作为默认值使用\n');
         }
@@ -870,6 +959,37 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     const removeSourceBranch = await question(`  删除源分支 [${currentRemove}]: `);
     configData.git.removeSourceBranch = removeSourceBranch.trim() === '' ? currentRemove : removeSourceBranch.trim() !== 'false';
 
+    // Merge Request configuration
+    console.log('\n🔀 合并请求指派配置:');
+    const currentAssigneeId = configData.merge_request.assignee_id || 0;
+    const assigneeId = await question(`  单个指派人用户ID (可选，0表示取消指派) [${currentAssigneeId}]: `);
+    const parsedAssigneeId = parseInt(assigneeId.trim(), 10);
+    configData.merge_request.assignee_id = isNaN(parsedAssigneeId) ? currentAssigneeId : parsedAssigneeId;
+
+    const currentAssigneeIds = configData.merge_request.assignee_ids || [];
+    const assigneeIdsStr = currentAssigneeIds.length > 0 ? currentAssigneeIds.join(',') : '';
+    const assigneeIds = await question(`  指派人用户ID列表 (可选，逗号分隔，如: 1,2,3)${assigneeIdsStr ? ` [${assigneeIdsStr}]` : ''}: `);
+    if (assigneeIds.trim()) {
+      configData.merge_request.assignee_ids = assigneeIds.split(',').map(id => {
+        const num = parseInt(id.trim(), 10);
+        return isNaN(num) ? 0 : num;
+      }).filter(id => id >= 0);
+    } else if (!assigneeIdsStr) {
+      configData.merge_request.assignee_ids = [];
+    }
+
+    const currentReviewerIds = configData.merge_request.reviewer_ids || [];
+    const reviewerIdsStr = currentReviewerIds.length > 0 ? currentReviewerIds.join(',') : '';
+    const reviewerIds = await question(`  审查者用户ID列表 (可选，逗号分隔，如: 1,2,3)${reviewerIdsStr ? ` [${reviewerIdsStr}]` : ''}: `);
+    if (reviewerIds.trim()) {
+      configData.merge_request.reviewer_ids = reviewerIds.split(',').map(id => {
+        const num = parseInt(id.trim(), 10);
+        return isNaN(num) ? 0 : num;
+      }).filter(id => id >= 0);
+    } else if (!reviewerIdsStr) {
+      configData.merge_request.reviewer_ids = [];
+    }
+
     rl.close();
 
     // Create configuration file
@@ -944,6 +1064,17 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: ${configData.git.removeSourceBranch}
+
+# 合并请求指派配置 - 配置指派人和审查者
+merge_request:
+  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
+  assignee_id: ${configData.merge_request?.assignee_id || 0}
+  
+  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
+  assignee_ids: ${configData.merge_request?.assignee_ids ? JSON.stringify(configData.merge_request.assignee_ids) : '[]'}
+  
+  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
+  reviewer_ids: ${configData.merge_request?.reviewer_ids ? JSON.stringify(configData.merge_request.reviewer_ids) : '[]'}
 `;
 
   // Determine config path

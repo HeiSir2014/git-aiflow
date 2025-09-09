@@ -24,6 +24,17 @@ export interface GitPlatformProject {
 }
 
 /**
+ * Merge Request configuration options
+ */
+export interface MergeRequestOptions {
+  assignee_id?: number;
+  assignee_ids?: number[];
+  reviewer_ids?: number[];
+  squash?: boolean;
+  removeSourceBranch?: boolean;
+}
+
+/**
  * Abstract base class for Git platform services
  */
 export abstract class GitPlatformService {
@@ -84,16 +95,14 @@ export abstract class GitPlatformService {
    * @param sourceBranch Source branch name
    * @param targetBranch Target branch name
    * @param title Request title
-   * @param squash Whether to squash commits
-   * @param removeSourceBranch Whether to remove source branch after merge
+   * @param options Merge request options including assignees, reviewers, squash, etc.
    * @returns Raw platform response
    */
   protected abstract createMergeRequestInternal(
     sourceBranch: string,
     targetBranch: string,
     title: string,
-    squash?: boolean,
-    removeSourceBranch?: boolean
+    options?: MergeRequestOptions
   ): Promise<MergeRequestResponse>;
 
   /**
@@ -101,19 +110,41 @@ export abstract class GitPlatformService {
    * @param sourceBranch Source branch name
    * @param targetBranch Target branch name
    * @param title Request title
-   * @param squash Whether to squash commits
-   * @param removeSourceBranch Whether to remove source branch after merge
+   * @param options Merge request options including assignees, reviewers, squash, etc.
    * @returns Web URL of the created request
    */
   async createMergeRequest(
     sourceBranch: string,
     targetBranch: string,
     title: string,
+    options?: MergeRequestOptions
+  ): Promise<string> {
+    const response = await this.createMergeRequestInternal(sourceBranch, targetBranch, title, options);
+    return response.web_url;
+  }
+
+  /**
+   * Create a merge/pull request (legacy method for backward compatibility)
+   * @param sourceBranch Source branch name
+   * @param targetBranch Target branch name
+   * @param title Request title
+   * @param squash Whether to squash commits
+   * @param removeSourceBranch Whether to remove source branch after merge
+   * @returns Web URL of the created request
+   * @deprecated Use createMergeRequest with options parameter instead
+   */
+  async createMergeRequestLegacy(
+    sourceBranch: string,
+    targetBranch: string,
+    title: string,
     squash?: boolean,
     removeSourceBranch?: boolean
   ): Promise<string> {
-    const response = await this.createMergeRequestInternal(sourceBranch, targetBranch, title, squash, removeSourceBranch);
-    return response.web_url;
+    const options: MergeRequestOptions = {
+      squash,
+      removeSourceBranch
+    };
+    return this.createMergeRequest(sourceBranch, targetBranch, title, options);
   }
 
   /**

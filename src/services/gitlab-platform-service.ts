@@ -1,4 +1,4 @@
-import { GitPlatformService, GitPlatformProject, MergeRequestResponse } from './git-platform-service.js';
+import { GitPlatformService, GitPlatformProject, MergeRequestResponse, MergeRequestOptions } from './git-platform-service.js';
 import { GitService } from './git-service.js';
 import { HttpClient } from '../http/http-client.js';
 
@@ -67,11 +67,19 @@ export class GitlabPlatformService extends GitPlatformService {
     sourceBranch: string,
     targetBranch: string,
     title: string,
-    squash: boolean = true,
-    removeSourceBranch: boolean = true
+    options: MergeRequestOptions = {}
   ): Promise<MergeRequestResponse> {
     // Get project information
     const project = await this.getProject();
+
+    // Extract options with defaults
+    const {
+      assignee_id,
+      assignee_ids,
+      reviewer_ids,
+      squash = true,
+      removeSourceBranch = true
+    } = options;
 
     // Build request body with all parameters
     const bodyParams = [
@@ -81,6 +89,36 @@ export class GitlabPlatformService extends GitPlatformService {
       `squash=${squash}`,                           // Squash all commits into one
       `remove_source_branch=${removeSourceBranch}` // Delete source branch after merge
     ];
+
+    // Add assignee_id if specified
+    if (assignee_id !== undefined && assignee_id > 0) {
+      bodyParams.push(`assignee_id=${assignee_id}`);
+      console.log(`📋 Setting assignee ID: ${assignee_id}`);
+    }
+
+    // Add assignee_ids if specified and not empty
+    if (assignee_ids && assignee_ids.length > 0) {
+      // Filter out invalid IDs and add each one separately
+      const validAssigneeIds = assignee_ids.filter(id => id > 0);
+      if (validAssigneeIds.length > 0) {
+        validAssigneeIds.forEach(id => {
+          bodyParams.push(`assignee_ids[]=${id}`);
+        });
+        console.log(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
+      }
+    }
+
+    // Add reviewer_ids if specified and not empty
+    if (reviewer_ids && reviewer_ids.length > 0) {
+      // Filter out invalid IDs and add each one separately
+      const validReviewerIds = reviewer_ids.filter(id => id > 0);
+      if (validReviewerIds.length > 0) {
+        validReviewerIds.forEach(id => {
+          bodyParams.push(`reviewer_ids[]=${id}`);
+        });
+        console.log(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
+      }
+    }
 
     console.log(`📋 Creating GitLab merge request for project ${project.id}`);
 
