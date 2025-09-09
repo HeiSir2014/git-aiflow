@@ -348,6 +348,46 @@ curl -H "PRIVATE-TOKEN: your-token" https://gitlab.com/api/v4/user
 ls -la conandata.yml conan.win.lock
 ```
 
+#### 问题 4：Windows PowerShell 执行策略错误
+
+**问题现象**：
+```powershell
+❌ aiflow : 无法加载文件 C:\Users\user\AppData\Roaming\npm\aiflow.ps1，
+因为在此系统上禁止运行脚本。
+   + CategoryInfo          : SecurityError: (:) []，PSSecurityException
+   + FullyQualifiedErrorId : UnauthorizedAccess
+```
+
+**根本原因**：
+Windows PowerShell 默认的执行策略限制了脚本运行，这是系统安全机制。
+
+**解决方案**：
+
+**方法一：修改执行策略（推荐）**
+```powershell
+# 以管理员身份运行 PowerShell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+**方法二：临时绕过**
+```powershell
+# 每次运行时临时绕过
+PowerShell -ExecutionPolicy Bypass -Command "aiflow"
+```
+
+**方法三：使用 npx**
+```bash
+# 替代方案
+npx aiflow
+```
+
+**验证修复**：
+```powershell
+# 检查当前策略
+Get-ExecutionPolicy -List
+# 应显示 CurrentUser: RemoteSigned
+```
+
 ### 日志分析
 Git-AIFlow 提供详细的日志系统：
 
