@@ -80,4 +80,8 @@ coverage/
 dist/**/*.map
 dist/**/*.d.ts.map
 
+# wiki
+wiki/
+doc/
+
 # Keep only essentials for the package
