@@ -3,7 +3,7 @@
 import { Shell } from './shell.js';
 import { HttpClient } from './http/http-client.js';
 import { StringUtil } from './utils/string-util.js';
-import { GitService } from './services/git-service.js';
+import { GitService, GitFileStatus } from './services/git-service.js';
 import { OpenAiService } from './services/openai-service.js';
 import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo } from './services/git-platform-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
@@ -11,6 +11,7 @@ import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, i
 import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
+import readline from 'readline';
 
 /**
  * Base class for AI-powered Git automation applications
@@ -105,6 +106,175 @@ export abstract class BaseAiflowApp {
   }
 
   /**
+   * Interactive file selection for staging
+   * @returns Promise<boolean> - true if files were staged, false if user cancelled
+   */
+  protected async interactiveFileSelection(): Promise<boolean> {
+    const fileStatuses = this.git.status();
+    
+    if (fileStatuses.length === 0) {
+      console.log("✅ No changes detected in the repository.");
+      return false;
+    }
+
+    console.log('\n📁 Detected file changes:');
+    console.log('─'.repeat(50));
+    
+    // Group files by status for better display
+    const untracked = fileStatuses.filter(f => f.isUntracked);
+    const modified = fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'M');
+    const deleted = fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'D');
+    const added = fileStatuses.filter(f => !f.isUntracked && f.indexStatus === 'A');
+    
+    // Display files by category
+    if (modified.length > 0) {
+      console.log('\n📝 Modified files:');
+      modified.forEach((file, index) => {
+        console.log(`  ${index + 1}. ${file.path}`);
+      });
+    }
+    
+    if (untracked.length > 0) {
+      console.log('\n❓ Untracked files:');
+      untracked.forEach((file, index) => {
+        console.log(`  ${modified.length + index + 1}. ${file.path}`);
+      });
+    }
+    
+    if (added.length > 0) {
+      console.log('\n➕ Added files:');
+      added.forEach((file, index) => {
+        console.log(`  ${modified.length + untracked.length + index + 1}. ${file.path}`);
+      });
+    }
+    
+    if (deleted.length > 0) {
+      console.log('\n🗑️  Deleted files:');
+      deleted.forEach((file, index) => {
+        console.log(`  ${modified.length + untracked.length + added.length + index + 1}. ${file.path}`);
+      });
+    }
+
+    return await this.promptFileSelection(fileStatuses);
+  }
+
+  /**
+   * Prompt user to select files for staging
+   * @param fileStatuses Array of file statuses
+   * @returns Promise<boolean> - true if files were staged, false if cancelled
+   */
+  private async promptFileSelection(fileStatuses: GitFileStatus[]): Promise<boolean> {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    const question = (prompt: string): Promise<string> => {
+      return new Promise((resolve) => {
+        rl.question(prompt, resolve);
+      });
+    };
+
+    try {
+      console.log('\n🎯 File selection options:');
+      console.log('  • Enter file numbers (e.g., 1,3,5 or 1-5)');
+      console.log('  • Type "all" to stage all files');
+      console.log('  • Type "modified" to stage only modified files');
+      console.log('  • Type "untracked" to stage only untracked files');
+      console.log('  • Press Enter or type "cancel" to cancel');
+
+      const input = await question('\n📋 Select files to stage: ');
+      
+      if (!input.trim() || input.toLowerCase() === 'cancel') {
+        console.log('❌ Operation cancelled.');
+        return false;
+      }
+
+      const selectedFiles = this.parseFileSelection(input, fileStatuses);
+      
+      if (selectedFiles.length === 0) {
+        console.log('❌ No valid files selected.');
+        return false;
+      }
+
+      // Show selected files for confirmation
+      console.log('\n📋 Files to be staged:');
+      selectedFiles.forEach(file => {
+        console.log(`  ✓ ${file.path} (${file.statusDescription})`);
+      });
+
+      const confirm = await question('\n❓ Stage these files? (Y/n): ');
+      
+      if (confirm.toLowerCase() === 'n' || confirm.toLowerCase() === 'no') {
+        console.log('❌ Staging cancelled.');
+        return false;
+      }
+
+      // Stage selected files
+      console.log('\n📦 Staging selected files...');
+      for (const file of selectedFiles) {
+        this.git.addFile(file.path);
+      }
+
+      console.log(`✅ Successfully staged ${selectedFiles.length} file(s).`);
+      return true;
+
+    } finally {
+      rl.close();
+    }
+  }
+
+  /**
+   * Parse user input for file selection
+   * @param input User input string
+   * @param fileStatuses Array of file statuses
+   * @returns Array of selected files
+   */
+  private parseFileSelection(input: string, fileStatuses: GitFileStatus[]): GitFileStatus[] {
+    const trimmedInput = input.trim().toLowerCase();
+    
+    // Handle special keywords
+    if (trimmedInput === 'all') {
+      return fileStatuses;
+    }
+    
+    if (trimmedInput === 'modified') {
+      return fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'M');
+    }
+    
+    if (trimmedInput === 'untracked') {
+      return fileStatuses.filter(f => f.isUntracked);
+    }
+
+    // Parse numeric input (e.g., "1,3,5" or "1-5")
+    const selectedFiles: GitFileStatus[] = [];
+    const parts = input.split(',').map(p => p.trim());
+    
+    for (const part of parts) {
+      if (part.includes('-')) {
+        // Handle range (e.g., "1-5")
+        const [start, end] = part.split('-').map(n => parseInt(n.trim()));
+        if (!isNaN(start) && !isNaN(end)) {
+          for (let i = start; i <= end; i++) {
+            if (i >= 1 && i <= fileStatuses.length) {
+              selectedFiles.push(fileStatuses[i - 1]);
+            }
+          }
+        }
+      } else {
+        // Handle single number
+        const num = parseInt(part);
+        if (!isNaN(num) && num >= 1 && num <= fileStatuses.length) {
+          selectedFiles.push(fileStatuses[num - 1]);
+        }
+      }
+    }
+    
+    // Remove duplicates
+    return [...new Set(selectedFiles)];
+  }
+
+  /**
    * Validate required configuration for the application
    */
   protected validateConfiguration(): void {
@@ -151,12 +321,31 @@ export abstract class BaseAiflowApp {
 
     try {
       // Step 1: Check for staged changes
-      const diff = this.git.getDiff();
+      let diff = this.git.getDiff();
+      let changedFiles = this.git.getChangedFiles();
+      
       if (!diff) {
-        console.error("❌ No staged changes found. Please run git add . first.");
-        process.exit(1);
+        console.log("📋 No staged changes found. Let's select files to stage...");
+        
+        // Interactive file selection
+        const filesStaged = await this.interactiveFileSelection();
+        
+        if (!filesStaged) {
+          console.log("❌ No files were staged. Exiting...");
+          process.exit(1);
+        }
+        
+        // Re-check for staged changes after interactive selection
+        diff = this.git.getDiff();
+        changedFiles = this.git.getChangedFiles();
+        
+        if (!diff) {
+          console.error("❌ Still no staged changes found. Please check your selection.");
+          process.exit(1);
+        }
+        
+        console.log(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
       }
-      const changedFiles = this.git.getChangedFiles();
 
       // Step 2: Determine target branch
       const targetBranch = this.getTargetBranch();
