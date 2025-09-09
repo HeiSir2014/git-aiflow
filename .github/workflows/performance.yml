@@ -1,0 +1,527 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run daily at 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  benchmark-build:
+    name: Build Performance Benchmark
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Benchmark build time
+        run: |
+          echo "⏱️ Build Performance Benchmark"
+          echo "=============================="
+          
+          # Clean build
+          npm run clean
+          
+          # Measure build time
+          echo "Starting build benchmark..."
+          START_TIME=$(date +%s)
+          npm run build
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+          
+          echo "Build completed in ${BUILD_TIME} seconds"
+          echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
+          
+          # Measure output size
+          DIST_SIZE=$(du -sb dist/ | cut -f1)
+          DIST_SIZE_MB=$((DIST_SIZE / 1024 / 1024))
+          echo "Distribution size: ${DIST_SIZE_MB}MB (${DIST_SIZE} bytes)"
+          echo "DIST_SIZE=${DIST_SIZE}" >> $GITHUB_ENV
+
+      - name: Record build metrics
+        run: |
+          echo "📊 Build Metrics"
+          echo "==============="
+          echo "Build time: ${BUILD_TIME} seconds"
+          echo "Dist size: ${DIST_SIZE} bytes"
+          
+          # Create metrics file
+          cat << EOF > build-metrics.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "build_time_seconds": ${BUILD_TIME},
+            "dist_size_bytes": ${DIST_SIZE},
+            "node_version": "$(node --version)",
+            "npm_version": "$(npm --version)"
+          }
+          EOF
+
+      - name: Upload build metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metrics
+          path: build-metrics.json
+          retention-days: 30
+
+  cli-performance:
+    name: CLI Performance Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Test CLI startup performance
+        shell: bash
+        run: |
+          echo "🚀 CLI Startup Performance Test"
+          echo "==============================="
+          
+          # Test aiflow help command performance
+          echo "Testing aiflow --help startup time:"
+          time_output=$(time (timeout 30s node dist/aiflow-app.js --help > /dev/null 2>&1) 2>&1 || echo "completed")
+          echo "Aiflow help: $time_output"
+          
+          echo -e "\nTesting aiflow-conan --help startup time:"
+          time_output=$(time (timeout 30s node dist/aiflow-conan-app.js --help > /dev/null 2>&1) 2>&1 || echo "completed")
+          echo "Aiflow-conan help: $time_output"
+
+      - name: Test CLI config performance
+        shell: bash
+        run: |
+          echo "⚙️ CLI Configuration Performance"
+          echo "==============================="
+          
+          # Test config help command
+          echo "Testing aiflow --config-help:"
+          time (timeout 30s node dist/aiflow-app.js --config-help > /dev/null 2>&1) || echo "Config help completed"
+          
+          echo -e "\nTesting aiflow-conan --config-help:"
+          time (timeout 30s node dist/aiflow-conan-app.js --config-help > /dev/null 2>&1) || echo "Conan config help completed"
+
+      - name: Memory usage profiling
+        shell: bash
+        run: |
+          echo "🧠 Memory Usage Profiling"
+          echo "========================"
+          
+          # Profile memory usage
+          node -e "
+            const { spawn } = require('child_process');
+            const start = process.memoryUsage();
+            console.log('Initial memory usage:', start);
+            
+            // Run a simple CLI command and measure memory
+            const child = spawn('node', ['dist/aiflow-app.js', '--help'], { 
+              stdio: 'pipe',
+              timeout: 10000 
+            });
+            
+            child.on('close', (code) => {
+              const end = process.memoryUsage();
+              console.log('Final memory usage:', end);
+              console.log('Memory difference (bytes):', {
+                rss: end.rss - start.rss,
+                heapUsed: end.heapUsed - start.heapUsed,
+                heapTotal: end.heapTotal - start.heapTotal
+              });
+            });
+            
+            child.on('error', (err) => {
+              console.log('Child process error (expected for timeout):', err.message);
+            });
+            
+            setTimeout(() => {
+              child.kill();
+            }, 8000);
+          "
+
+  package-analysis:
+    name: Package Size Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Analyze package contents
+        run: |
+          echo "📦 Package Content Analysis"
+          echo "==========================="
+          
+          # Create package
+          npm pack
+          PACKAGE_FILE=$(ls git-aiflow-*.tgz)
+          
+          # Analyze package size
+          PACKAGE_SIZE=$(stat -c%s "$PACKAGE_FILE" 2>/dev/null || stat -f%z "$PACKAGE_FILE")
+          PACKAGE_SIZE_KB=$((PACKAGE_SIZE / 1024))
+          echo "Package size: ${PACKAGE_SIZE_KB}KB (${PACKAGE_SIZE} bytes)"
+          
+          # Extract and analyze contents
+          tar -tzf "$PACKAGE_FILE" > package-contents.txt
+          echo -e "\nPackage contents:"
+          cat package-contents.txt | head -20
+          
+          echo -e "\nFile count by type:"
+          tar -tzf "$PACKAGE_FILE" | grep -E '\.(js|d\.ts|json|md)$' | sed 's/.*\.//' | sort | uniq -c
+
+      - name: Bundle size breakdown
+        run: |
+          echo "📊 Bundle Size Breakdown"
+          echo "======================="
+          
+          # Analyze individual file sizes
+          echo "Largest files in distribution:"
+          find dist -type f -name "*.js" -exec ls -lh {} \; | sort -k5 -hr | head -10
+          
+          echo -e "\nType declaration files:"
+          find dist -type f -name "*.d.ts" -exec ls -lh {} \; | head -10
+          
+          echo -e "\nSource map files:"
+          find dist -type f -name "*.map" -exec ls -lh {} \; | head -10 || echo "No source maps found"
+
+      - name: Dependency size analysis
+        run: |
+          echo "📚 Dependency Analysis"
+          echo "====================="
+          
+          # Analyze node_modules size (for reference)
+          NODE_MODULES_SIZE=$(du -sh node_modules 2>/dev/null | cut -f1 || echo "unknown")
+          echo "Total node_modules size: $NODE_MODULES_SIZE"
+          
+          # Production dependencies only
+          npm ci --production --silent
+          PROD_SIZE=$(du -sh node_modules 2>/dev/null | cut -f1 || echo "unknown")
+          echo "Production dependencies size: $PROD_SIZE"
+          
+          # Restore all dependencies
+          npm ci --silent
+
+  load-testing:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Stress test CLI commands
+        run: |
+          echo "💪 CLI Stress Testing"
+          echo "===================="
+          
+          # Test multiple concurrent CLI invocations
+          echo "Testing concurrent CLI help commands..."
+          
+          for i in {1..5}; do
+            echo "Batch $i:"
+            (
+              timeout 10s node dist/aiflow-app.js --help > /dev/null 2>&1 &
+              timeout 10s node dist/aiflow-conan-app.js --help > /dev/null 2>&1 &
+              wait
+            )
+            echo "Batch $i completed"
+          done
+
+      - name: Test configuration loading performance
+        run: |
+          echo "⚙️ Configuration Loading Performance"
+          echo "==================================="
+          
+          # Test config loading multiple times
+          for i in {1..10}; do
+            echo -n "Config test $i: "
+            timeout 30s npm run test:config > /dev/null 2>&1 && echo "✅" || echo "⏰"
+          done
+
+      - name: Test error handling performance
+        run: |
+          echo "🚨 Error Handling Performance"
+          echo "============================="
+          
+          # Test invalid command handling
+          echo "Testing invalid commands:"
+          time (node dist/aiflow-app.js --invalid-flag > /dev/null 2>&1) || echo "Invalid flag test completed"
+          time (node dist/aiflow-conan-app.js --nonexistent-option > /dev/null 2>&1) || echo "Invalid option test completed"
+
+  comparison-analysis:
+    name: Performance Comparison
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      issues: write
+    
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies and build (PR)
+        run: |
+          # Install dependencies (use npm install if package-lock.json doesn't exist)
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          npm run build
+
+      - name: Measure PR performance
+        run: |
+          echo "📊 PR Performance Metrics"
+          echo "========================"
+          
+          # Build time
+          npm run clean
+          START_TIME=$(date +%s)
+          npm run build
+          END_TIME=$(date +%s)
+          PR_BUILD_TIME=$((END_TIME - START_TIME))
+          
+          # Package size
+          npm pack
+          PR_PACKAGE_SIZE=$(stat -c%s git-aiflow-*.tgz 2>/dev/null || stat -f%z git-aiflow-*.tgz)
+          
+          # CLI startup time (approximation)
+          START_TIME=$(date +%s%N)
+          timeout 5s node dist/aiflow-app.js --help > /dev/null 2>&1 || true
+          END_TIME=$(date +%s%N)
+          PR_CLI_TIME=$(((END_TIME - START_TIME) / 1000000)) # Convert to milliseconds
+          
+          echo "PR_BUILD_TIME=${PR_BUILD_TIME}" >> $GITHUB_ENV
+          echo "PR_PACKAGE_SIZE=${PR_PACKAGE_SIZE}" >> $GITHUB_ENV
+          echo "PR_CLI_TIME=${PR_CLI_TIME}" >> $GITHUB_ENV
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          clean: false
+
+      - name: Measure base performance
+        run: |
+          echo "📊 Base Branch Performance"
+          echo "========================="
+          
+          # Install dependencies (use npm install if package-lock.json doesn't exist)
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          
+          npm run clean
+          START_TIME=$(date +%s)
+          npm run build
+          END_TIME=$(date +%s)
+          BASE_BUILD_TIME=$((END_TIME - START_TIME))
+          
+          # Package size
+          npm pack
+          BASE_PACKAGE_SIZE=$(stat -c%s git-aiflow-*.tgz 2>/dev/null || stat -f%z git-aiflow-*.tgz)
+          
+          # CLI startup time
+          START_TIME=$(date +%s%N)
+          timeout 5s node dist/aiflow-app.js --help > /dev/null 2>&1 || true
+          END_TIME=$(date +%s%N)
+          BASE_CLI_TIME=$(((END_TIME - START_TIME) / 1000000))
+          
+          echo "BASE_BUILD_TIME=${BASE_BUILD_TIME}" >> $GITHUB_ENV
+          echo "BASE_PACKAGE_SIZE=${BASE_PACKAGE_SIZE}" >> $GITHUB_ENV
+          echo "BASE_CLI_TIME=${BASE_CLI_TIME}" >> $GITHUB_ENV
+
+      - name: Generate performance comparison
+        run: |
+          echo "📈 Performance Comparison Report"
+          echo "==============================="
+          
+          # Calculate differences
+          BUILD_DIFF=$((PR_BUILD_TIME - BASE_BUILD_TIME))
+          SIZE_DIFF=$((PR_PACKAGE_SIZE - BASE_PACKAGE_SIZE))
+          CLI_DIFF=$((PR_CLI_TIME - BASE_CLI_TIME))
+          
+          # Calculate percentages
+          if [ $BASE_BUILD_TIME -gt 0 ]; then
+            BUILD_PERCENT=$(echo "scale=2; $BUILD_DIFF * 100 / $BASE_BUILD_TIME" | bc -l || echo "0")
+          else
+            BUILD_PERCENT="N/A"
+          fi
+          
+          if [ $BASE_PACKAGE_SIZE -gt 0 ]; then
+            SIZE_PERCENT=$(echo "scale=2; $SIZE_DIFF * 100 / $BASE_PACKAGE_SIZE" | bc -l || echo "0")
+          else
+            SIZE_PERCENT="N/A"
+          fi
+          
+          if [ $BASE_CLI_TIME -gt 0 ]; then
+            CLI_PERCENT=$(echo "scale=2; $CLI_DIFF * 100 / $BASE_CLI_TIME" | bc -l || echo "0")
+          else
+            CLI_PERCENT="N/A"
+          fi
+          
+          # Create comparison report
+          cat << EOF >> performance-comparison.md
+          ## 📊 Performance Impact Analysis
+          
+          | Metric | Base | PR | Difference | Change % |
+          |--------|------|----|-----------:|----------|
+          | Build Time (s) | ${BASE_BUILD_TIME} | ${PR_BUILD_TIME} | ${BUILD_DIFF} | ${BUILD_PERCENT}% |
+          | Package Size (bytes) | ${BASE_PACKAGE_SIZE} | ${PR_PACKAGE_SIZE} | ${SIZE_DIFF} | ${SIZE_PERCENT}% |
+          | CLI Startup (ms) | ${BASE_CLI_TIME} | ${PR_CLI_TIME} | ${CLI_DIFF} | ${CLI_PERCENT}% |
+          
+          ### Analysis
+          
+          - **Build Time**: $([ $BUILD_DIFF -gt 0 ] && echo "Slower by ${BUILD_DIFF}s" || echo "Faster by $((BUILD_DIFF * -1))s")
+          - **Package Size**: $([ $SIZE_DIFF -gt 0 ] && echo "Larger by ${SIZE_DIFF} bytes" || echo "Smaller by $((SIZE_DIFF * -1)) bytes")
+          - **CLI Startup**: $([ $CLI_DIFF -gt 0 ] && echo "Slower by ${CLI_DIFF}ms" || echo "Faster by $((CLI_DIFF * -1))ms")
+          
+          EOF
+          
+          cat performance-comparison.md
+
+      - name: Comment performance results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const comparison = fs.readFileSync('performance-comparison.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comparison
+            });
+
+  performance-regression-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and test performance
+        run: |
+          npm run build
+          
+          # Set performance thresholds
+          MAX_BUILD_TIME=60  # Maximum build time in seconds
+          MAX_PACKAGE_SIZE=5242880  # Maximum package size in bytes (5MB)
+          MAX_CLI_STARTUP=2000  # Maximum CLI startup time in milliseconds
+          
+          # Measure current performance
+          npm run clean
+          START_TIME=$(date +%s)
+          npm run build
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+          
+          npm pack
+          PACKAGE_SIZE=$(stat -c%s git-aiflow-*.tgz 2>/dev/null || stat -f%z git-aiflow-*.tgz)
+          
+          START_TIME=$(date +%s%N)
+          timeout 5s node dist/aiflow-app.js --help > /dev/null 2>&1 || true
+          END_TIME=$(date +%s%N)
+          CLI_TIME=$(((END_TIME - START_TIME) / 1000000))
+          
+          # Check thresholds
+          echo "Performance Regression Check"
+          echo "==========================="
+          echo "Build time: ${BUILD_TIME}s (max: ${MAX_BUILD_TIME}s)"
+          echo "Package size: ${PACKAGE_SIZE} bytes (max: ${MAX_PACKAGE_SIZE} bytes)"
+          echo "CLI startup: ${CLI_TIME}ms (max: ${MAX_CLI_STARTUP}ms)"
+          
+          FAILED=false
+          
+          if [ $BUILD_TIME -gt $MAX_BUILD_TIME ]; then
+            echo "❌ Build time exceeds threshold!"
+            FAILED=true
+          fi
+          
+          if [ $PACKAGE_SIZE -gt $MAX_PACKAGE_SIZE ]; then
+            echo "❌ Package size exceeds threshold!"
+            FAILED=true
+          fi
+          
+          if [ $CLI_TIME -gt $MAX_CLI_STARTUP ]; then
+            echo "❌ CLI startup time exceeds threshold!"
+            FAILED=true
+          fi
+          
+          if [ "$FAILED" = true ]; then
+            echo "Performance regression detected!"
+            exit 1
+          else
+            echo "✅ All performance checks passed"
+          fi
