@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { BaseAiflowApp } from './aiflow-app.js';
+import { MergeRequestOptions } from './services/git-platform-service.js';
 import { StringUtil } from './utils/string-util.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
@@ -95,14 +96,36 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       console.log(`📋 Creating Merge Request...`);
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
+      
+      // Get merge request configuration
+      const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
+      const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
+      const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+
+      const mergeRequestOptions: MergeRequestOptions = {
+        squash: squashCommits,
+        removeSourceBranch: removeSourceBranch
+      };
+
+      // Add assignee configuration if specified
+      if (typeof assigneeId === 'number' && assigneeId > 0) {
+        mergeRequestOptions.assignee_id = assigneeId;
+      }
+      
+      if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+        mergeRequestOptions.assignee_ids = assigneeIds;
+      }
+      
+      if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
+        mergeRequestOptions.reviewer_ids = reviewerIds;
+      }
 
       const mrTitle = `chore: update ${packageName} package to latest version`;
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         mrTitle,
-        squashCommits,
-        removeSourceBranch
+        mergeRequestOptions
       );
       console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 

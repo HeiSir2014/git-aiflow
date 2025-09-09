@@ -5,7 +5,7 @@ import { HttpClient } from './http/http-client.js';
 import { StringUtil } from './utils/string-util.js';
 import { GitService, GitFileStatus } from './services/git-service.js';
 import { OpenAiService } from './services/openai-service.js';
-import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo } from './services/git-platform-service.js';
+import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo, MergeRequestOptions } from './services/git-platform-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
 import path from 'path';
@@ -373,13 +373,35 @@ export abstract class BaseAiflowApp {
       console.log(`📋 Creating Merge Request...`);
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
+      
+      // Get merge request configuration
+      const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
+      const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
+      const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+
+      const mergeRequestOptions: MergeRequestOptions = {
+        squash: squashCommits,
+        removeSourceBranch: removeSourceBranch
+      };
+
+      // Add assignee configuration if specified
+      if (typeof assigneeId === 'number' && assigneeId > 0) {
+        mergeRequestOptions.assignee_id = assigneeId;
+      }
+      
+      if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+        mergeRequestOptions.assignee_ids = assigneeIds;
+      }
+      
+      if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
+        mergeRequestOptions.reviewer_ids = reviewerIds;
+      }
 
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         commit,
-        squashCommits,
-        removeSourceBranch
+        mergeRequestOptions
       );
       console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
