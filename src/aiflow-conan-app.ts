@@ -4,13 +4,10 @@ import { BaseAiflowApp } from './aiflow-app.js';
 import { StringUtil } from './utils/string-util.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
-import { parseCliArgs, getConfigValue, getCliHelp, initConfig, loadEnvironmentVariables } from './config.js';
+import { parseCliArgs, getConfigValue, getCliHelp, initConfig } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-// Initialize environment variables at startup
-loadEnvironmentVariables();
-
+import clipboardy from 'clipboardy';
 /**
  * Conan package update application with automated MR creation
  */
@@ -65,7 +62,7 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
         return;
       }
 
-      const changedFiles = this.git.getChangedFiles(5);
+      const changedFiles = this.git.getChangedFiles();
 
       // Step 3: Determine target branch
       const targetBranch = this.getTargetBranch();
@@ -123,29 +120,25 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       }
 
       // Format MR information for sharing
-      const mrInfo = `🎉 Conan - ${packageName} 包更新合并请求创建成功！
-
-📦 包名: ${packageName}
-📋 MR 链接: ${mrUrl}
-
+      const isGitHub = this.gitPlatform.getPlatformName() === 'github';
+      const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
+      const requestAbbr = isGitHub ? 'PR' : 'MR';
+      
+      const outputMrInfo = `🎉 Conan - ${packageName} 包更新${requestType}创建成功！
+📋 ${requestAbbr} 链接: ${mrUrl}
+🌿 分支信息: ${branchName} ->  ${targetBranch}
 📝 提交信息:
 ${enhancedCommit}
-
-🌿 分支信息:
-• 源分支: ${branchName}
-• 目标分支: ${targetBranch}
-
-📁 变更文件 (${changedFiles.length} 个):
-${changedFiles.map(file => `• ${file}`).join('\n')}
-
-⚙️ MR 配置:
-• 压缩提交: ${squashCommits ? '✅ 是' : '❌ 否'}
-• 删除源分支: ${removeSourceBranch ? '✅ 是' : '❌ 否'}
-
-📢 通知状态: ${getConfigValue(this.config, 'wecom.enable', false) ? '✅ 已发送企业微信通知' : '⏭️  未启用通知'}
+📁 变更文件 (${changedFiles.length} 个)${changedFiles.length > 10 ? `前10个: ` : ': '}
+${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles.length > 10 ? `\n...${changedFiles.length - 10}个文件` : ''}`;
+      const consoleMrInfo = `
+${'-'.repeat(50)}
+${outputMrInfo}
+${'-'.repeat(50)}
 `;
+      console.log(consoleMrInfo);
+      await clipboardy.write(outputMrInfo);
 
-      console.log(mrInfo);
       console.log(`✅ Conan package update workflow completed successfully!`);
 
     } catch (error) {
