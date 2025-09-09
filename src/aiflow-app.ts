@@ -10,6 +10,7 @@ import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import clipboard from 'clipboardy';
 
 /**
  * Base class for AI-powered Git automation applications
@@ -155,7 +156,7 @@ export abstract class BaseAiflowApp {
         console.error("❌ No staged changes found. Please run git add . first.");
         process.exit(1);
       }
-      const changedFiles = this.git.getChangedFiles(5);
+      const changedFiles = this.git.getChangedFiles();
 
       // Step 2: Determine target branch
       const targetBranch = this.getTargetBranch();
@@ -208,39 +209,21 @@ export abstract class BaseAiflowApp {
       const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
       const requestAbbr = isGitHub ? 'PR' : 'MR';
 
-      const mrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
-
+      const outputMrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
 📋 ${requestAbbr} 链接: ${mrUrl}
-
 📝 提交信息:
 ${commit}
-
-🌿 分支信息:
-• 源分支: ${branchName}
-• 目标分支: ${targetBranch}
-
-📁 变更文件 (${changedFiles.length} 个):
-${changedFiles.map(file => `• ${file}`).join('\n')}
-
-⚙️ ${requestAbbr} 配置:
-• 压缩提交: ${getConfigValue(this.config, 'git.squashCommits', true) ? '✅ 是' : '❌ 否'}
-• 删除源分支: ${getConfigValue(this.config, 'git.removeSourceBranch', true) ? '✅ 是' : '❌ 否'}
-• 平台: ${this.gitPlatform.getPlatformName().toUpperCase()}
+🌿 分支信息: ${branchName} ->  ${targetBranch}
+📁 变更文件 (${changedFiles.length} 个)${changedFiles.length > 10 ? `前10个: ` : ': '}
+${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles.length > 10 ? `\n...${changedFiles.length - 10}个文件` : ''}`;
+      const consoleMrInfo = `
+${'-'.repeat(50)}
+${outputMrInfo}
+${'-'.repeat(50)}
 `;
-      console.log(mrInfo);
-
-      // Copy to clipboard call shell implement
-      if (process.platform === 'darwin') {
-        this.shell.run(`echo ${mrInfo} | pbcopy`);
-      }
-      else if (process.platform === 'win32') {
-        this.shell.run(`echo ${mrInfo} | clip`);
-      }
-      else if (process.platform === 'linux') {
-        this.shell.run(`echo ${mrInfo} | xclip -selection clipboard`);
-      }
+      console.log(consoleMrInfo);
+      await clipboard.write(outputMrInfo);
       console.log("📋 MR info copied to clipboard.");
-
     } catch (error) {
       console.error(`❌ Error during MR creation:`, error);
       process.exit(1);

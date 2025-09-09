@@ -661,10 +661,14 @@ function getShortArgMapping(shortKey: string): string {
  * Get help text for CLI arguments
  */
 export function getCliHelp(): string {
+  // Calculate actual global config path
+  const userDataDir = getUserDataDir();
+  const globalConfigPath = path.join(userDataDir, 'aiflow', 'config.yaml');
+
   return `
 AIFlow CLI 配置选项
 
-配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(~/.config/aiflow/config.yaml) > 环境变量
+配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(${globalConfigPath}) > 环境变量
 
 OpenAI 配置 - AI功能支持:
   -ok, --openai-key <key>               OpenAI API密钥 (必需，用于AI生成提交信息)
@@ -710,7 +714,7 @@ Git 配置 - 合并请求行为:
 
 配置文件位置:
   本地: .aiflow/config.yaml
-  全局: ~/.config/aiflow/config.yaml (Linux/macOS) 或 %APPDATA%/aiflow/config.yaml (Windows)
+  全局: ${globalConfigPath}
   
 运行 'aiflow --create-config' 可生成示例配置文件
 `;
@@ -720,8 +724,17 @@ Git 配置 - 合并请求行为:
  * Interactive configuration initialization
  */
 export async function initConfig(isGlobal: boolean = false): Promise<void> {
+  // Calculate actual config path
+  let configPath: string;
+  if (isGlobal) {
+    const userDataDir = getUserDataDir();
+    configPath = path.join(userDataDir, 'aiflow', 'config.yaml');
+  } else {
+    configPath = path.join(process.cwd(), '.aiflow', 'config.yaml');
+  }
+
   console.log(`🔧 AIFlow 配置初始化${isGlobal ? ' (全局)' : ' (本地)'}`);
-  console.log(`📁 配置位置: ${isGlobal ? '~/.config/aiflow/config.yaml' : '.aiflow/config.yaml'}`);
+  console.log(`📁 配置位置: ${configPath}`);
   console.log('💡 提示：直接回车使用默认值或跳过可选配置\n');
 
   const rl = readline.createInterface({
@@ -736,8 +749,8 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
   };
 
   try {
-    // Collect configuration
-    const configData: any = {
+    // Load existing configuration if available
+    let configData: any = {
       openai: {},
       git_access_tokens: {},
       conan: {},
@@ -745,33 +758,74 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       git: {}
     };
 
+    // Try to load existing config file
+    if (fs.existsSync(configPath)) {
+      try {
+        const existingConfigContent = fs.readFileSync(configPath, 'utf8');
+        const existingConfig = yaml.load(existingConfigContent) as any;
+        if (existingConfig) {
+          configData = {
+            openai: existingConfig.openai || {},
+            git_access_tokens: existingConfig.git_access_tokens || {},
+            conan: existingConfig.conan || {},
+            wecom: existingConfig.wecom || {},
+            git: existingConfig.git || {}
+          };
+          console.log('📋 发现现有配置文件，将作为默认值使用\n');
+        }
+      } catch (error) {
+        console.log('⚠️  读取现有配置文件失败，将创建新配置\n');
+      }
+    }
+
     // OpenAI configuration
     console.log('🤖 OpenAI 配置:');
-    const openaiKey = await question('  OpenAI API 密钥 (必需): ');
+    const currentKey = configData.openai.key ? '已设置' : '';
+    const openaiKey = await question(`  OpenAI API 密钥 (必需)${currentKey ? ` [${currentKey}]` : ''}: `);
     if (openaiKey.trim()) configData.openai.key = openaiKey.trim();
 
-    const openaiBaseUrl = await question('  OpenAI API 地址 [https://api.openai.com/v1]: ');
-    configData.openai.baseUrl = openaiBaseUrl.trim() || 'https://api.openai.com/v1';
+    const currentBaseUrl = configData.openai.baseUrl || 'https://api.openai.com/v1';
+    const openaiBaseUrl = await question(`  OpenAI API 地址 [${currentBaseUrl}]: `);
+    configData.openai.baseUrl = openaiBaseUrl.trim() || currentBaseUrl;
 
-    const openaiModel = await question('  OpenAI 模型 [gpt-3.5-turbo]: ');
-    configData.openai.model = openaiModel.trim() || 'gpt-3.5-turbo';
+    const currentModel = configData.openai.model || 'gpt-3.5-turbo';
+    const openaiModel = await question(`  OpenAI 模型 [${currentModel}]: `);
+    configData.openai.model = openaiModel.trim() || currentModel;
 
     // Git access tokens configuration
     console.log('\n🔑 Git 访问令牌配置:');
-    configData.git_access_tokens = {};
-    
-    console.log('  您可以配置多个Git平台的访问令牌，直接回车跳过');
+    // Keep existing tokens, don't reset
+    if (!configData.git_access_tokens) {
+      configData.git_access_tokens = {};
+    }
+
+    // Show existing tokens
+    const existingHosts = Object.keys(configData.git_access_tokens);
+    if (existingHosts.length > 0) {
+      console.log('  现有配置的Git平台:');
+      existingHosts.forEach(host => {
+        console.log(`    • ${host}: 已设置`);
+      });
+      console.log('');
+    }
+
+    console.log('  您可以添加新的Git平台访问令牌或修改现有配置，直接回车跳过');
     // Git platform tokens with loop for multiple platforms
     while (true) {
       const gitHost = await question('  Git 平台主机名 (如: github.com, gitlab.example.com, gitee.com，留空结束): ');
       if (!gitHost.trim()) break;
-      
-      const gitToken = await question(`  ${gitHost.trim()} 访问令牌: `);
+
+      const currentToken = configData.git_access_tokens[gitHost.trim()];
+      const tokenPrompt = currentToken
+        ? `  ${gitHost.trim()} 访问令牌 [已设置]: `
+        : `  ${gitHost.trim()} 访问令牌: `;
+
+      const gitToken = await question(tokenPrompt);
       if (gitToken.trim()) {
         configData.git_access_tokens[gitHost.trim()] = gitToken.trim();
-        console.log(`    ✅ 已添加 ${gitHost.trim()} 的访问令牌`);
+        console.log(`    ✅ 已${currentToken ? '更新' : '添加'} ${gitHost.trim()} 的访问令牌`);
       }
-      
+
       const continueAdding = await question('  是否继续添加其他 Git 平台令牌？(y/N): ');
       if (continueAdding.toLowerCase() !== 'y' && continueAdding.toLowerCase() !== 'yes') {
         break;
@@ -780,27 +834,41 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
 
     // Conan configuration
     console.log('\n📦 Conan 配置:');
-    const conanBaseUrl = await question('  Conan 仓库 API 地址 (可选): ');
-    if (conanBaseUrl.trim()) configData.conan.remoteBaseUrl = conanBaseUrl.trim();
+    const currentConanUrl = configData.conan.remoteBaseUrl || '';
+    const conanBaseUrl = await question(`  Conan 仓库 API 地址 (可选)${currentConanUrl ? ` [${currentConanUrl}]` : ''}: `);
+    if (conanBaseUrl.trim()) {
+      configData.conan.remoteBaseUrl = conanBaseUrl.trim();
+    } else if (!currentConanUrl) {
+      delete configData.conan.remoteBaseUrl;
+    }
 
-    const conanRepo = await question('  Conan 仓库名称 [repo]: ');
-    configData.conan.remoteRepo = conanRepo.trim() || 'repo';
+    const currentConanRepo = configData.conan.remoteRepo || 'repo';
+    const conanRepo = await question(`  Conan 仓库名称 [${currentConanRepo}]: `);
+    configData.conan.remoteRepo = conanRepo.trim() || currentConanRepo;
 
     // WeChat Work configuration
     console.log('\n💬 企业微信配置:');
-    const wecomWebhook = await question('  企业微信 Webhook 地址 (可选): ');
-    if (wecomWebhook.trim()) configData.wecom.webhook = wecomWebhook.trim();
+    const currentWebhook = configData.wecom.webhook || '';
+    const wecomWebhook = await question(`  企业微信 Webhook 地址 (可选)${currentWebhook ? ` [已设置]` : ''}: `);
+    if (wecomWebhook.trim()) {
+      configData.wecom.webhook = wecomWebhook.trim();
+    } else if (!currentWebhook) {
+      delete configData.wecom.webhook;
+    }
 
-    const wecomEnable = await question('  启用企业微信通知 [true]: ');
-    configData.wecom.enable = wecomEnable.trim() !== 'false';
+    const currentEnable = configData.wecom.enable !== undefined ? configData.wecom.enable : true;
+    const wecomEnable = await question(`  启用企业微信通知 [${currentEnable}]: `);
+    configData.wecom.enable = wecomEnable.trim() === '' ? currentEnable : wecomEnable.trim() !== 'false';
 
     // Git configuration
     console.log('\n🌿 Git 配置:');
-    const squashCommits = await question('  压缩提交 [true]: ');
-    configData.git.squashCommits = squashCommits.trim() !== 'false';
+    const currentSquash = configData.git.squashCommits !== undefined ? configData.git.squashCommits : true;
+    const squashCommits = await question(`  压缩提交 [${currentSquash}]: `);
+    configData.git.squashCommits = squashCommits.trim() === '' ? currentSquash : squashCommits.trim() !== 'false';
 
-    const removeSourceBranch = await question('  删除源分支 [true]: ');
-    configData.git.removeSourceBranch = removeSourceBranch.trim() !== 'false';
+    const currentRemove = configData.git.removeSourceBranch !== undefined ? configData.git.removeSourceBranch : true;
+    const removeSourceBranch = await question(`  删除源分支 [${currentRemove}]: `);
+    configData.git.removeSourceBranch = removeSourceBranch.trim() === '' ? currentRemove : removeSourceBranch.trim() !== 'false';
 
     rl.close();
 
@@ -822,9 +890,12 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
  * Create configuration file
  */
 export async function createConfigFile(configData: any, isGlobal: boolean): Promise<void> {
+  // Calculate actual global config path
+  const userDataDir = getUserDataDir();
+  const globalConfigPath = path.join(userDataDir, 'aiflow', 'config.yaml');
   // Generate YAML content with comments
   const yamlContent = `# AIFlow 配置文件
-# 配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(~/.config/aiflow/config.yaml) > 环境变量
+# 配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(${globalConfigPath}) > 环境变量
 
 # OpenAI API 配置 - 用于AI驱动的功能
 openai:
@@ -839,9 +910,9 @@ openai:
 
 # Git 访问令牌配置 - 支持多个Git托管平台
 git_access_tokens:
-${Object.keys(configData.git_access_tokens || {}).length > 0 
-  ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
-  : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+${Object.keys(configData.git_access_tokens || {}).length > 0
+      ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
+      : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
   # github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
   # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
@@ -878,18 +949,13 @@ git:
   // Determine config path
   let configPath: string;
   if (isGlobal) {
-    // Use the same getUserDataDir logic for consistency
-    const userDataDir = getUserDataDir();
-    const configDir = path.join(userDataDir, 'aiflow');
-    configPath = path.join(configDir, 'config.yaml');
-
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
+    configPath = globalConfigPath;
+    if (!fs.existsSync(globalConfigPath)) {
+      fs.mkdirSync(globalConfigPath, { recursive: true });
     }
   } else {
     const configDir = path.join(process.cwd(), '.aiflow');
     configPath = path.join(configDir, 'config.yaml');
-
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }

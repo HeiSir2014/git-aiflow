@@ -105,9 +105,12 @@ ${escapedMessage}
     this.push(branch);
   }
 
-  getChangedFiles(limit = 5): string[] {
-    const files = this.shell.run("git diff --cached --name-only");
-    return files.split("\n").filter(Boolean).slice(0, limit);
+  getChangedFiles(limit?: number): string[] {
+    const files = this.shell.run("git diff --cached --name-only").trim().split("\n").filter(Boolean);
+    if (limit) {
+      return files.slice(0, limit);
+    }
+    return files;
   }
 
   /**
