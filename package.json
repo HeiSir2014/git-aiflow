@@ -75,7 +75,8 @@
     "clipboardy": "^4.0.0",
     "dotenv": "^17.2.2",
     "js-yaml": "^4.1.0",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "lodash": "^4.17.21"
   },
   "engines": {
     "node": ">=18.0.0"
