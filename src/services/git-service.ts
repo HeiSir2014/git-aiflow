@@ -1,15 +1,34 @@
 import { Shell } from '../shell.js';
 import { StringUtil } from '../utils/string-util.js';
+import { createLogger } from '../logger.js';
+
+/**
+ * Git file status interface
+ */
+export interface GitFileStatus {
+  /** File path relative to repository root */
+  path: string;
+  /** Index status (staged changes) */
+  indexStatus: string;
+  /** Working tree status (unstaged changes) */
+  workTreeStatus: string;
+  /** Whether file is untracked */
+  isUntracked: boolean;
+  /** Human readable status description */
+  statusDescription: string;
+}
 
 /**
  * Git operations service
  */
 export class GitService {
   private readonly shell: Shell;
+  private readonly logger = createLogger('GitService');
   private static readonly protocolCache = new Map<string, string>();
 
   constructor(shell?: Shell) {
     this.shell = shell || new Shell();
+    this.logger.debug('GitService initialized');
   }
 
   getUserName(): string {
@@ -39,7 +58,7 @@ export class GitService {
    * @param filePath File path to add
    */
   addFile(filePath: string): void {
-    console.log(`➕ Adding file: ${filePath}`);
+    this.logger.info(`Adding file: ${filePath}`);
     this.shell.run(`git add "${filePath}"`);
   }
 
@@ -56,7 +75,7 @@ export class GitService {
    * @param branchName Branch name to create
    */
   createBranch(branchName: string): void {
-    console.log(`🌿 Creating branch: ${branchName}`);
+    this.logger.info(`Creating branch: ${branchName}`);
     this.shell.run(`git checkout -b "${branchName}"`);
   }
 
@@ -65,7 +84,8 @@ export class GitService {
    * @param message Commit message
    */
   commit(message: string): void {
-    console.log(`📝 Committing changes...`);
+    this.logger.info('Committing changes...');
+    this.logger.debug(`Commit message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
 
     // Use PowerShell here-string for multiline messages
     if (message.includes('\n')) {
@@ -90,7 +110,7 @@ ${escapedMessage}
    * @param branchName Branch name to push
    */
   push(branchName: string): void {
-    console.log(`📤 Pushing branch: ${branchName}`);
+    this.logger.info(`Pushing branch: ${branchName}`);
     this.shell.run(`git push -u origin "${branchName}"`);
   }
 
@@ -166,7 +186,7 @@ ${escapedMessage}
 
       return '';
     } catch (error) {
-      console.warn(`⚠️  Could not extract hostname from Git URL: ${url}`);
+      this.logger.warn(`Could not extract hostname from Git URL: ${url}`);
       return '';
     }
   }
@@ -198,7 +218,7 @@ ${escapedMessage}
 
       return '';
     } catch (error) {
-      console.warn(`⚠️  Could not extract base URL from Git URL: ${url}`);
+      this.logger.warn(`Could not extract base URL from Git URL: ${url}`);
       return '';
     }
   }
@@ -226,7 +246,7 @@ ${escapedMessage}
 
       return null;
     } catch (error) {
-      console.error(`❌ Failed to parse git remote URL: ${url}`, error);
+      this.logger.error(`Failed to parse git remote URL: ${url}`, error);
       return null;
     }
   }
@@ -271,10 +291,10 @@ ${escapedMessage}
   private async probeProtocolForHost(hostname: string): Promise<string> {
     const httpsUrl = `https://${hostname}`;
     try {
-      console.log(`🔍 Probing protocol support for: ${hostname}`);
+      this.logger.debug(`Probing protocol support for: ${hostname}`);
       // Try HTTPS first (modern standard)
       if (await this.isProtocolSupported(httpsUrl)) {
-        console.log(`✅ HTTPS supported for: ${hostname}`);
+        this.logger.debug(`HTTPS supported for: ${hostname}`);
         GitService.protocolCache.set(hostname, httpsUrl);
         return httpsUrl;
       }
@@ -282,15 +302,15 @@ ${escapedMessage}
       // Fallback to HTTP
       const httpUrl = `http://${hostname}`;
       if (await this.isProtocolSupported(httpUrl)) {
-        console.log(`✅ HTTP supported for: ${hostname} (HTTPS not available)`);
+        this.logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
         GitService.protocolCache.set(hostname, httpUrl);
         return httpUrl;
       }
 
       // If both fail, keep HTTPS as fallback (already in cache)
-      console.warn(`⚠️  Could not connect to ${hostname}, keeping HTTPS as default`);
+      this.logger.warn(`Could not connect to ${hostname}, keeping HTTPS as default`);
     } catch (error) {
-      console.warn(`⚠️  Error probing ${hostname}:`, error);
+      this.logger.warn(`Error probing ${hostname}:`, error);
     }
     return httpsUrl;
   }
@@ -309,12 +329,13 @@ ${escapedMessage}
    * @param hostname Optional hostname to clear, if not provided clears all cache
    */
   static clearProtocolCache(hostname?: string): void {
+    const logger = createLogger('GitService');
     if (hostname) {
       GitService.protocolCache.delete(hostname);
-      console.log(`🗑️  Cleared protocol cache for: ${hostname}`);
+      logger.debug(`Cleared protocol cache for: ${hostname}`);
     } else {
       GitService.protocolCache.clear();
-      console.log(`🗑️  Cleared all protocol cache`);
+      logger.debug('Cleared all protocol cache');
     }
   }
 
@@ -338,7 +359,7 @@ ${escapedMessage}
     // Try HTTPS first
     const httpsUrl = `https://${hostname}`;
     if (await this.isProtocolSupported(httpsUrl)) {
-      console.log(`✅ HTTPS supported for: ${hostname}`);
+      this.logger.debug(`HTTPS supported for: ${hostname}`);
       GitService.protocolCache.set(hostname, httpsUrl);
       return httpsUrl;
     }
@@ -346,13 +367,13 @@ ${escapedMessage}
     // Fallback to HTTP
     const httpUrl = `http://${hostname}`;
     if (await this.isProtocolSupported(httpUrl)) {
-      console.log(`✅ HTTP supported for: ${hostname} (HTTPS not available)`);
+      this.logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
       GitService.protocolCache.set(hostname, httpUrl);
       return httpUrl;
     }
 
     // If both fail, use HTTPS as fallback
-    console.warn(`⚠️  Could not connect to ${hostname}, defaulting to HTTPS`);
+    this.logger.warn(`Could not connect to ${hostname}, defaulting to HTTPS`);
     GitService.protocolCache.set(hostname, httpsUrl);
     return httpsUrl;
   }
@@ -437,78 +458,171 @@ ${escapedMessage}
   }
 
   /**
+   * Get git repository status for all files
+   * @returns Array of GitFileStatus objects representing file changes
+   */
+  status(): GitFileStatus[] {
+    try {
+      const statusOutput = this.shell.run("git status --short --ignore-submodules --porcelain").trim();
+      
+      if (!statusOutput) {
+        return [];
+      }
+
+      return statusOutput.split('\n').map(line => this.parseStatusLine(line)).filter(Boolean) as GitFileStatus[];
+    } catch (error) {
+      this.logger.error('Error getting git status:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Parse a single git status line
+   * @param line Git status output line (format: "XY filename")
+   * @returns GitFileStatus object or null if invalid line
+   */
+  private parseStatusLine(line: string): GitFileStatus | null {
+    if (!line || line.length < 3) {
+      return null;
+    }
+
+    // Git status format: XY filename
+    // X = index status, Y = working tree status
+    const indexStatus = line[0];
+    const workTreeStatus = line[1];
+    const path = line.substring(3).trim();
+
+    if (!path) {
+      return null;
+    }
+
+    // Determine if file is untracked
+    const isUntracked = indexStatus === '?' && workTreeStatus === '?';
+
+    // Generate human readable status description
+    const statusDescription = this.getStatusDescription(indexStatus, workTreeStatus);
+
+    return {
+      path,
+      indexStatus,
+      workTreeStatus,
+      isUntracked,
+      statusDescription
+    };
+  }
+
+  /**
+   * Get human readable description for git status codes
+   * @param indexStatus Index status character
+   * @param workTreeStatus Working tree status character
+   * @returns Human readable status description
+   */
+  private getStatusDescription(indexStatus: string, workTreeStatus: string): string {
+    // Handle untracked files
+    if (indexStatus === '?' && workTreeStatus === '?') {
+      return 'Untracked';
+    }
+
+    const descriptions: string[] = [];
+
+    // Index status (staged changes)
+    switch (indexStatus) {
+      case 'A': descriptions.push('Added to index'); break;
+      case 'M': descriptions.push('Modified in index'); break;
+      case 'D': descriptions.push('Deleted from index'); break;
+      case 'R': descriptions.push('Renamed in index'); break;
+      case 'C': descriptions.push('Copied in index'); break;
+      case 'U': descriptions.push('Updated but unmerged'); break;
+      case ' ': break; // No change in index
+      default: descriptions.push(`Index: ${indexStatus}`); break;
+    }
+
+    // Working tree status (unstaged changes)
+    switch (workTreeStatus) {
+      case 'M': descriptions.push('Modified in working tree'); break;
+      case 'D': descriptions.push('Deleted in working tree'); break;
+      case 'A': descriptions.push('Added in working tree'); break;
+      case 'U': descriptions.push('Updated but unmerged'); break;
+      case ' ': break; // No change in working tree
+      default: descriptions.push(`Working tree: ${workTreeStatus}`); break;
+    }
+
+    return descriptions.length > 0 ? descriptions.join(', ') : 'No changes';
+  }
+
+  /**
    * Display comprehensive Git repository information
    */
   showGitInfo(): void {
-    console.log('📋 Git Repository Information');
-    console.log('─'.repeat(50));
+    this.logger.info('Git Repository Information');
+    this.logger.info('─'.repeat(50));
 
     try {
       // Current working directory
       const currentDir = process.cwd();
-      console.log(`📂 Current Working Directory: ${currentDir}`);
+      this.logger.info(`Current Working Directory: ${currentDir}`);
 
       // Repository root
       const repoRoot = this.getRepositoryRoot();
-      console.log(`📁 Repository Root: ${repoRoot}`);
+      this.logger.info(`Repository Root: ${repoRoot}`);
 
       // Check if we're in the repository
       const isInRepo = currentDir.startsWith(repoRoot.replace(/\//g, '\\')) ||
         currentDir.startsWith(repoRoot.replace(/\\/g, '/'));
-      console.log(`🎯 Working in Repository: ${isInRepo ? '✅ Yes' : '❌ No'}`);
+      this.logger.info(`Working in Repository: ${isInRepo ? 'Yes' : 'No'}`);
 
       // Current branch
       const currentBranch = this.getCurrentBranch();
-      console.log(`🌿 Current Branch: ${currentBranch}`);
+      this.logger.info(`Current Branch: ${currentBranch}`);
 
       // Current commit
       const currentCommit = this.getCurrentCommit();
       const shortCommit = this.getShortCommit();
-      console.log(`📝 Current Commit: ${shortCommit} (${currentCommit})`);
+      this.logger.info(`Current Commit: ${shortCommit} (${currentCommit})`);
 
       // Remote information
       const remoteName = this.getRemoteName();
       if (remoteName) {
         const remoteUrl = this.getRemoteUrl(remoteName);
-        console.log(`🌐 Remote Name: ${remoteName}`);
-        console.log(`🔗 Remote URL: ${remoteUrl}`);
+        this.logger.info(`Remote Name: ${remoteName}`);
+        this.logger.info(`Remote URL: ${remoteUrl}`);
       } else {
-        console.log(`🌐 Remote: No remote configured`);
+        this.logger.info('Remote: No remote configured');
       }
 
       // Repository status
       const hasUncommitted = this.hasUncommittedChanges();
       const hasStaged = this.hasStagedChanges();
 
-      console.log(`📊 Repository Status:`);
-      console.log(`   Uncommitted changes: ${hasUncommitted ? '✅ Yes' : '❌ No'}`);
-      console.log(`   Staged changes: ${hasStaged ? '✅ Yes' : '❌ No'}`);
+      this.logger.info('Repository Status:');
+      this.logger.info(`   Uncommitted changes: ${hasUncommitted ? 'Yes' : 'No'}`);
+      this.logger.info(`   Staged changes: ${hasStaged ? 'Yes' : 'No'}`);
 
       // Show some recent files if there are changes
       if (hasUncommitted) {
         const statusOutput = this.shell.run("git status --porcelain").trim();
         const files = statusOutput.split('\n').slice(0, 5);
-        console.log(`📄 Recent Changes (top 5):`);
+        this.logger.info('Recent Changes (top 5):');
         files.forEach(file => {
           const status = file.substring(0, 2);
           const fileName = file.substring(3);
-          const statusIcon = status.includes('M') ? '📝' :
-            status.includes('A') ? '➕' :
-              status.includes('D') ? '➖' :
-                status.includes('??') ? '❓' : '📄';
-          console.log(`   ${statusIcon} ${fileName}`);
+          const statusIcon = status.includes('M') ? 'Modified' :
+            status.includes('A') ? 'Added' :
+              status.includes('D') ? 'Deleted' :
+                status.includes('??') ? 'Untracked' : 'Changed';
+          this.logger.info(`   ${statusIcon}: ${fileName}`);
         });
       }
 
       // User information
       const userName = this.getUserName();
       const userEmail = this.shell.run("git config user.email").trim();
-      console.log(`👤 Git User: ${userName} <${userEmail}>`);
+      this.logger.info(`Git User: ${userName} <${userEmail}>`);
 
     } catch (error) {
-      console.error(`❌ Error getting Git information: ${error}`);
+      this.logger.error(`Error getting Git information: ${error}`);
     }
 
-    console.log('─'.repeat(50));
+    this.logger.info('─'.repeat(50));
   }
 }
