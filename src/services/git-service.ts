@@ -463,7 +463,7 @@ ${escapedMessage}
    */
   status(): GitFileStatus[] {
     try {
-      const statusOutput = this.shell.run("git status --short --ignore-submodules --porcelain");
+      const statusOutput = this.shell.run("git status --short --ignore-submodules --porcelain --untracked-files=all");
       
       if (!statusOutput) {
         return [];
@@ -492,7 +492,7 @@ ${escapedMessage}
     const workTreeStatus = line[1];
     const path = line.substring(3).trim();
 
-    if (!path) {
+    if (!path || path.startsWith('.aiflow')) {
       return null;
     }
 

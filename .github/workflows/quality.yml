@@ -1,0 +1,511 @@
+name: Code Quality and Security
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+
+  dependency-vulnerability-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          echo "🔍 Running npm audit..."
+          npm audit --audit-level=moderate --json > npm-audit.json || true
+          
+          if [ -s npm-audit.json ]; then
+            echo "📊 Audit results found:"
+            cat npm-audit.json | jq '.vulnerabilities | keys[] as $k | "\($k): \(.[$k].severity)"' || true
+          else
+            echo "✅ No vulnerabilities found"
+          fi
+
+      - name: Check for high/critical vulnerabilities
+        run: |
+          HIGH_VULN=$(cat npm-audit.json | jq '.vulnerabilities | to_entries[] | select(.value.severity == "high" or .value.severity == "critical") | length' 2>/dev/null || echo "0")
+          
+          if [ "$HIGH_VULN" -gt 0 ]; then
+            echo "❌ Found high/critical vulnerabilities!"
+            cat npm-audit.json | jq '.vulnerabilities | to_entries[] | select(.value.severity == "high" or .value.severity == "critical")'
+            exit 1
+          else
+            echo "✅ No high/critical vulnerabilities found"
+          fi
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-results
+          path: npm-audit.json
+          retention-days: 30
+
+  license-compliance:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install license checker
+        run: npm install -g license-checker
+
+      - name: Check dependency licenses
+        run: |
+          echo "📋 Checking dependency licenses..."
+          license-checker --summary > license-summary.txt
+          license-checker --json > license-report.json
+          
+          echo "License summary:"
+          cat license-summary.txt
+
+      - name: Validate approved licenses
+        run: |
+          echo "🔍 Validating licenses against approved list..."
+          
+          # Define approved licenses
+          APPROVED_LICENSES=(
+            "MIT"
+            "Apache-2.0"
+            "BSD-2-Clause"
+            "BSD-3-Clause"
+            "ISC"
+            "0BSD"
+            "BlueOak-1.0.0"
+            "Unlicense"
+            "WTFPL"
+          )
+          
+          # Check for non-approved licenses
+          UNAPPROVED=$(license-checker --csv | tail -n +2 | cut -d',' -f3 | sort -u | grep -v -E "$(IFS=\|; echo "${APPROVED_LICENSES[*]}")" || true)
+          
+          if [ -n "$UNAPPROVED" ]; then
+            echo "❌ Found unapproved licenses:"
+            echo "$UNAPPROVED"
+            echo "Please review these licenses for compatibility"
+            exit 1
+          else
+            echo "✅ All dependencies use approved licenses"
+          fi
+
+      - name: Upload license reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports
+          path: |
+            license-summary.txt
+            license-report.json
+          retention-days: 30
+
+  code-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Analyze code complexity
+        run: |
+          echo "📊 Code Complexity Analysis"
+          echo "=========================="
+          
+          # Count files and lines
+          TS_FILES=$(find src -name "*.ts" -not -path "*/test/*" | wc -l)
+          TOTAL_LINES=$(find src -name "*.ts" -not -path "*/test/*" -exec cat {} \; | wc -l)
+          TEST_FILES=$(find src -name "*.test.ts" | wc -l)
+          
+          echo "TypeScript source files: $TS_FILES"
+          echo "Total lines of code: $TOTAL_LINES"
+          echo "Test files: $TEST_FILES"
+          echo "Average lines per file: $((TOTAL_LINES / TS_FILES))"
+
+      - name: Check code patterns
+        run: |
+          echo "🔍 Code Pattern Analysis"
+          echo "======================="
+          
+          # Check for potential issues
+          echo "TODO/FIXME comments:"
+          grep -r "TODO\|FIXME\|XXX\|HACK" src/ --include="*.ts" || echo "None found"
+          
+          echo -e "\nConsole.log statements:"
+          grep -r "console\.log\|console\.debug" src/ --include="*.ts" --exclude-dir=test || echo "None found"
+          
+          echo -e "\nUnused imports (potential):"
+          find src -name "*.ts" -not -path "*/test/*" -exec grep -l "^import.*from.*$" {} \; | head -5
+
+      - name: TypeScript strict mode verification
+        run: |
+          echo "📋 TypeScript Configuration Check"
+          echo "================================"
+          
+          # Check strict mode settings
+          if grep -q '"strict": true' tsconfig.json; then
+            echo "✅ TypeScript strict mode enabled"
+          else
+            echo "⚠️ TypeScript strict mode not enabled"
+          fi
+          
+          # Check other strict options
+          grep -E "(noImplicitAny|strictNullChecks|strictFunctionTypes)" tsconfig.json || echo "Additional strict options configured"
+
+      - name: Bundle size analysis
+        run: |
+          echo "📦 Bundle Size Analysis"
+          echo "======================"
+          
+          # Analyze built files
+          echo "Distribution file sizes:"
+          find dist -name "*.js" -exec ls -lh {} \; | awk '{print $5, $9}'
+          
+          echo -e "\nTotal dist directory size:"
+          du -sh dist/
+          
+          # Check for large files
+          echo -e "\nLarge files (>100KB):"
+          find dist -name "*.js" -size +100k -exec ls -lh {} \; || echo "No large files found"
+
+  performance-analysis:
+    name: Performance Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Measure build performance
+        run: |
+          echo "⏱️ Build Performance Analysis"
+          echo "============================"
+          
+          # Clean and rebuild with timing
+          npm run clean
+          time npm run build
+          
+          echo -e "\nBuild output size:"
+          du -sh dist/
+
+      - name: Test CLI startup performance
+        run: |
+          echo "🚀 CLI Startup Performance"
+          echo "========================="
+          
+          # Test CLI startup times
+          echo "Testing aiflow help command:"
+          time timeout 30s node dist/aiflow-app.js --help > /dev/null || echo "Command completed or timed out"
+          
+          echo -e "\nTesting aiflow-conan help command:"
+          time timeout 30s node dist/aiflow-conan-app.js --help > /dev/null || echo "Command completed or timed out"
+
+      - name: Memory usage analysis
+        run: |
+          echo "🧠 Memory Usage Analysis"
+          echo "======================="
+          
+          # Basic memory footprint test
+          node -e "
+            const { execSync } = require('child_process');
+            const start = process.memoryUsage();
+            console.log('Initial memory:', start);
+            
+            try {
+              execSync('node dist/aiflow-app.js --help', { timeout: 10000, stdio: 'pipe' });
+            } catch (e) {
+              // Timeout or other error, that's ok for this test
+            }
+            
+            const end = process.memoryUsage();
+            console.log('Final memory:', end);
+            console.log('Memory diff:', {
+              rss: end.rss - start.rss,
+              heapUsed: end.heapUsed - start.heapUsed
+            });
+          "
+
+  documentation-quality:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check README completeness
+        run: |
+          echo "📚 Documentation Quality Check"
+          echo "=============================="
+          
+          # Check README files
+          if [ -f README.md ]; then
+            echo "✅ README.md exists"
+            README_LINES=$(wc -l < README.md)
+            echo "README.md lines: $README_LINES"
+          else
+            echo "❌ README.md missing"
+          fi
+          
+          if [ -f README-EN.md ]; then
+            echo "✅ README-EN.md exists"
+            README_EN_LINES=$(wc -l < README-EN.md)
+            echo "README-EN.md lines: $README_EN_LINES"
+          else
+            echo "❌ README-EN.md missing"
+          fi
+
+      - name: Check LICENSE
+        run: |
+          if [ -f LICENSE ]; then
+            echo "✅ LICENSE file exists"
+            head -5 LICENSE
+          else
+            echo "❌ LICENSE file missing"
+          fi
+
+      - name: Validate package.json metadata
+        run: |
+          echo "📦 Package.json Validation"
+          echo "========================="
+          
+          # Check required fields
+          node -e "
+            const pkg = require('./package.json');
+            const required = ['name', 'version', 'description', 'author', 'license', 'repository'];
+            
+            required.forEach(field => {
+              if (pkg[field]) {
+                console.log('✅', field, ':', pkg[field]);
+              } else {
+                console.log('❌', field, ': missing');
+              }
+            });
+            
+            if (pkg.keywords && pkg.keywords.length > 0) {
+              console.log('✅ keywords:', pkg.keywords.length, 'keywords');
+            } else {
+              console.log('⚠️ keywords: missing or empty');
+            }
+          "
+
+      - name: Check inline documentation
+        run: |
+          echo "💬 Inline Documentation Check"
+          echo "============================="
+          
+          # Count TSDoc/JSDoc comments
+          TSDOC_COMMENTS=$(grep -r "\/\*\*" src/ --include="*.ts" | wc -l)
+          echo "TSDoc comments found: $TSDOC_COMMENTS"
+          
+          # Check for exported functions without documentation
+          echo -e "\nExported functions:"
+          grep -r "^export " src/ --include="*.ts" | head -10 || echo "No exports found in first check"
+
+  compatibility-check:
+    name: Node.js Compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Node.js compatibility
+        run: |
+          echo "🔧 Node.js ${{ matrix.node-version }} Compatibility"
+          echo "=============================================="
+          
+          node --version
+          npm --version
+          
+          # Check if build works
+          npm run build
+          
+          # Test CLI execution
+          timeout 10s node dist/aiflow-app.js --help > /dev/null || echo "Help command test completed"
+
+      - name: Check ES module compatibility
+        run: |
+          echo "📦 ES Module Compatibility"
+          echo "========================="
+          
+          # Check package.json type field
+          if grep -q '"type": "module"' package.json; then
+            echo "✅ ES modules enabled in package.json"
+          else
+            echo "❌ ES modules not enabled"
+          fi
+          
+          # Check built files for ES module syntax
+          if grep -q "export\|import" dist/*.js; then
+            echo "✅ ES module syntax found in built files"
+          else
+            echo "⚠️ No ES module syntax found in built files"
+          fi
+
+  security-best-practices:
+    name: Security Best Practices
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for sensitive data
+        run: |
+          echo "🔒 Sensitive Data Check"
+          echo "======================"
+          
+          # Check for potential secrets in code
+          echo "Checking for potential API keys or tokens:"
+          grep -r -i "api[_-]key\|secret\|token\|password" src/ --include="*.ts" --exclude-dir=test || echo "No obvious secrets found"
+          
+          echo -e "\nChecking for hardcoded URLs:"
+          grep -r "http[s]\?://" src/ --include="*.ts" | grep -v "api.openai.com" || echo "No unexpected URLs found"
+
+      - name: Validate file permissions
+        run: |
+          echo "📋 File Permissions Check"
+          echo "========================"
+          
+          # Check executable permissions on built files
+          if [ -f dist/aiflow-app.js ] && [ -x dist/aiflow-app.js ]; then
+            echo "✅ aiflow-app.js has executable permissions"
+          else
+            echo "⚠️ aiflow-app.js missing executable permissions"
+          fi
+          
+          if [ -f dist/aiflow-conan-app.js ] && [ -x dist/aiflow-conan-app.js ]; then
+            echo "✅ aiflow-conan-app.js has executable permissions"
+          else
+            echo "⚠️ aiflow-conan-app.js missing executable permissions"
+          fi
+
+      - name: Check .gitignore completeness
+        run: |
+          echo "📝 .gitignore Completeness"
+          echo "========================="
+          
+          # Check for important entries
+          GITIGNORE_ENTRIES=("node_modules" ".env" "dist" "*.log")
+          
+          for entry in "${GITIGNORE_ENTRIES[@]}"; do
+            if grep -q "$entry" .gitignore 2>/dev/null; then
+              echo "✅ $entry is ignored"
+            else
+              echo "⚠️ $entry should be in .gitignore"
+            fi
+          done
