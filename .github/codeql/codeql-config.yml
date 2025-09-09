@@ -1,0 +1,28 @@
+name: "AIFlow CodeQL Configuration"
+
+# 保留默认查询
+disable-default-queries: false
+
+# 仅添加额外官方安全和质量查询
+queries:
+  - security-and-quality
+
+query-filters:
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: js/debugger-statement
+
+paths:
+  - src
+
+paths-ignore:
+  - src/test
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - node_modules
+  - dist
+
+# 不需要手动指定 packs，使用 workflow 初始化时自动下载
+# packs:
+#   - codeql/javascript-queries
