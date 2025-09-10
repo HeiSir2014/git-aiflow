@@ -353,10 +353,11 @@ export abstract class BaseAiflowApp {
 
       // Step 3: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
+      const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
       console.log("✅ Generated commit message:", commit);
       console.log("✅ Generated branch suggestion:", branch);
+      console.log("✅ Generated MR description:", description);
 
       // Step 4: Create branch name
       const gitUser = this.git.getUserName();
