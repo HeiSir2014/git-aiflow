@@ -25,6 +25,8 @@ export class GitService {
   private readonly shell: Shell;
   private readonly logger = createLogger('GitService');
   private static readonly protocolCache = new Map<string, string>();
+  private remote_name?: string;
+  private remote_url?: string;
 
   constructor(shell?: Shell) {
     this.shell = shell || new Shell();
@@ -90,7 +92,7 @@ export class GitService {
 
       const filesOutput = this.shell.run(`git diff --name-only ${baseBranch}...${targetBranch}`).trim();
       const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
-      
+
       this.logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
       return files;
     } catch (error) {
@@ -157,7 +159,7 @@ ${escapedMessage}
    */
   push(branchName: string): void {
     this.logger.info(`Pushing branch: ${branchName}`);
-    this.shell.run(`git push -u origin "${branchName}"`);
+    this.shell.run(`git push -u ${this.getRemoteName()} "${branchName}"`);
   }
 
   /**
@@ -190,20 +192,30 @@ ${escapedMessage}
    * Get remote name (usually 'origin')
    */
   getRemoteName(): string {
+    if(this.remote_name) {
+      return this.remote_name;
+    }
     const remotes = this.shell.run("git remote").trim();
-    return remotes.split('\n').filter(Boolean)[0] || '';
+    const remote_name = (remotes.split('\n').filter(Boolean)[0] || '').trim();
+    this.remote_name = remote_name;
+    return remote_name;
   }
 
   /**
    * Get remote URL for specified remote
    */
   getRemoteUrl(remoteName?: string): string {
+    if(this.remote_url) {
+      return this.remote_url;
+    }
     const remote = remoteName || this.getRemoteName();
     if (!remote) {
       return 'No remote configured';
     }
     try {
-      return this.shell.run(`git remote get-url ${remote}`).trim();
+      const remote_url = this.shell.run(`git remote get-url ${remote}`).trim();
+      this.remote_url = remote_url;
+      return remote_url;
     } catch (error) {
       return `Error getting URL for remote '${remote}'`;
     }
@@ -481,7 +493,7 @@ ${escapedMessage}
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.getCurrentBranch();
-      if (this.hasRemoteBranch(`origin/${currentBranch}`)) {
+      if (this.hasRemoteBranch(`${this.getRemoteName()}/${currentBranch}`)) {
         return currentBranch;
       }
 
@@ -502,7 +514,7 @@ ${escapedMessage}
 
       // Otherwise, try to find the default branch by checking which exists
       for (const branch of defaultBranches) {
-        if (this.hasRemoteBranch(`origin/${branch}`)) {
+        if (this.hasRemoteBranch(`${this.getRemoteName()}/${branch}`)) {
           return branch;
         }
       }
@@ -567,7 +579,7 @@ ${escapedMessage}
   status(): GitFileStatus[] {
     try {
       const statusOutput = this.shell.run("git status --short --ignore-submodules --porcelain --untracked-files=all");
-      
+
       if (!statusOutput) {
         return [];
       }
@@ -736,66 +748,49 @@ ${escapedMessage}
   getBaseBranch(): string | null {
     try {
       const currentBranch = this.getCurrentBranch();
-      
-      // Return null if in detached HEAD
-      if (currentBranch === 'detached' || currentBranch === 'unknown') {
-        this.logger.debug('Current branch is detached or unknown, cannot determine base branch');
-        return null;
-      }
-
-      // Get all local branches excluding current branch
-      const allBranches = this.shell.run("git branch --format='%(refname:short)'").trim().split('\n');
-      const candidateBranches = allBranches.filter(branch => 
-        branch.trim() !== currentBranch && 
-        branch.trim() !== '' &&
-        !branch.includes('HEAD')
-      );
-
-      if (candidateBranches.length === 0) {
-        this.logger.debug('No candidate branches found for base branch detection');
-        return null;
-      }
-
-      this.logger.debug(`Checking ${candidateBranches.length} candidate branches for base branch`);
-
-      let bestBaseBranch: string | null = null;
-      let minBehind = Infinity;
-
-      for (const branch of candidateBranches) {
-        try {
-          // Get ahead/behind counts using git rev-list
-          const result = this.shell.run(`git rev-list --left-right --count ${branch}...${currentBranch}`).trim();
-          const [behind, ahead] = result.split('\t').map(num => parseInt(num.trim(), 10));
-
-          this.logger.debug(`Branch ${branch}: behind=${behind}, ahead=${ahead}`);
-
-          // Priority: behind = 0 and ahead > 0 (current branch is ahead of this branch)
-          if (behind === 0 && ahead > 0) {
-            this.logger.debug(`Found perfect base branch: ${branch} (behind=0, ahead=${ahead})`);
-            return branch;
+      if (!currentBranch || currentBranch === 'HEAD') return null;
+  
+      const logGraph = this.shell.run('git log --graph --oneline --decorate --all --simplify-by-decoration');
+      const lines = logGraph.split('\n');
+  
+      // 本地和远程分支列表
+      const localBranches = this.shell
+        .run("git for-each-ref --format='%(refname:short)' refs/heads/")
+        .trim()
+        .split('\n')
+        .map(b => b.trim());
+      const remotes = this.shell.run('git remote').trim().split('\n').map(r => r.trim());
+  
+      for (const line of lines) {
+        const match = line.match(/\((.*?)\)/);
+        if (!match) continue;
+  
+        const refs = match[1].split(',').map(r => r.trim());
+        const candidate = refs.find(r => r !== currentBranch && !r.startsWith('HEAD'));
+        if (!candidate) continue;
+  
+        let cleanBranch = candidate;
+  
+        if (!localBranches.includes(candidate)) {
+          for (const remote of remotes) {
+            const prefix = `${remote}/`;
+            if (candidate.startsWith(prefix)) {
+              cleanBranch = candidate.slice(prefix.length);
+              break;
+            }
           }
-
-          // Fallback: choose branch with minimum behind count
-          if (behind < minBehind) {
-            minBehind = behind;
-            bestBaseBranch = branch;
-          }
-        } catch (error) {
-          this.logger.warn(`Failed to check branch ${branch}: ${error}`);
-          continue;
         }
+  
+        this.logger.debug(`Detected base branch: ${cleanBranch}`);
+        return cleanBranch;
       }
-
-      if (bestBaseBranch) {
-        this.logger.debug(`Selected base branch: ${bestBaseBranch} (behind=${minBehind})`);
-      }
-
-      return bestBaseBranch;
+  
+      return null;
     } catch (error) {
-      this.logger.error('Error getting base branch:', error);
+      this.logger.error('Error determining base branch from log graph:', error);
       return null;
     }
-  }
+  }  
 
   /**
    * Get merge-base commit hash between current branch and target branch
@@ -810,7 +805,7 @@ ${escapedMessage}
       }
 
       const mergeBase = this.shell.run(`git merge-base HEAD ${otherBranch}`).trim();
-      
+
       if (!mergeBase || mergeBase === '') {
         this.logger.warn(`No merge-base found between current branch and ${otherBranch}`);
         return null;

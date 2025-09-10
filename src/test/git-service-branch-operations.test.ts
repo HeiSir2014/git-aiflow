@@ -45,6 +45,7 @@ async function testGitServiceBranchOperations(): Promise<void> {
   // Test 1: getBaseBranch() with valid repository
   runTest('getBaseBranch() returns string or null', () => {
     const result = git.getBaseBranch();
+    console.log('getBaseBranch() result:', result);
     return typeof result === 'string' || result === null;
   });
 

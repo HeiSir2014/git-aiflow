@@ -377,16 +377,8 @@ export abstract class BaseAiflowApp {
     console.log("✅ Generated branch suggestion:", branch);
     console.log("✅ Generated MR description:", description);
 
-    // Step 6: Create branch name
-    const gitUser = this.git.getUserName();
-    const aiBranch = StringUtil.sanitizeBranch(branch);
-    const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
-    const branchName = `${gitUser}/${aiBranch}-${dateSuffix}`;
+    const branchName = currentBranch;
     console.log("✅ Generated branch name:", branchName);
-
-    // Step 7: Create new branch and push current changes
-    console.log(`📤 Creating new branch and pushing changes...`);
-    this.git.createBranch(branchName);
     this.git.push(branchName);
 
     // Step 8: Create Merge Request
