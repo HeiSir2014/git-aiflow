@@ -1,6 +1,7 @@
 import { GitPlatformService, GitPlatformProject, MergeRequestResponse, MergeRequestOptions } from './git-platform-service.js';
 import { GitService } from './git-service.js';
 import { HttpClient } from '../http/http-client.js';
+import { createLogger } from '../logger.js';
 
 /**
  * GitHub API repository response
@@ -26,6 +27,7 @@ interface GithubPullRequest {
  * GitHub platform service implementation
  */
 export class GithubPlatformService extends GitPlatformService {
+  private readonly logger_ = createLogger('GithubPlatformService');
   constructor(token: string, baseUrl: string, gitService: GitService, http: HttpClient) {
     super(token, baseUrl, gitService, http);
   }
@@ -37,7 +39,7 @@ export class GithubPlatformService extends GitPlatformService {
   async getProjectByPath(projectPath: string): Promise<GitPlatformProject> {
     const apiUrl = `${this.getApiBaseUrl()}/repos/${projectPath}`;
 
-    console.log(`🔍 Fetching GitHub repository info from: ${apiUrl}`);
+    this.logger_.info(`🔍 Fetching GitHub repository info from: ${apiUrl}`);
 
     try {
       const repo = await this.http.requestJson<GithubRepository>(
@@ -50,8 +52,8 @@ export class GithubPlatformService extends GitPlatformService {
         }
       );
 
-      console.log(`✅ Found GitHub repository: ${repo.name} (ID: ${repo.id})`);
-      console.log(`📋 Full name: ${repo.full_name}`);
+      this.logger_.info(`✅ Found GitHub repository: ${repo.name} (ID: ${repo.id})`);
+      this.logger_.info(`📋 Full name: ${repo.full_name}`);
 
       return {
         id: repo.id.toString(),
@@ -79,7 +81,8 @@ export class GithubPlatformService extends GitPlatformService {
       assignee_ids,
       reviewer_ids,
       squash = true,
-      removeSourceBranch = true
+      removeSourceBranch = true,
+      description = ''
     } = options;
 
     // Build assignees array for GitHub (GitHub uses username strings, but we'll try with IDs first)
@@ -89,13 +92,13 @@ export class GithubPlatformService extends GitPlatformService {
     // For now, we'll convert IDs to strings and let the API handle validation
     if (assignee_id && assignee_id > 0) {
       assignees.push(assignee_id.toString());
-      console.log(`📋 Setting assignee ID: ${assignee_id}`);
+      this.logger_.info(`📋 Setting assignee ID: ${assignee_id}`);
     }
     
     if (assignee_ids && assignee_ids.length > 0) {
       const validAssigneeIds = assignee_ids.filter(id => id > 0).map(id => id.toString());
       assignees.push(...validAssigneeIds);
-      console.log(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
+      this.logger_.info(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
     }
 
     // GitHub uses different terminology: Pull Request instead of Merge Request
@@ -112,8 +115,14 @@ export class GithubPlatformService extends GitPlatformService {
       requestBody.assignees = assignees;
     }
 
+    // Add description if specified
+    if (description) {
+      requestBody.body = description;
+      this.logger_.info(`📋 Setting description: ${description}`);
+    }
+
     const apiUrl = `${this.getApiBaseUrl()}/repos/${project.full_name}/pulls`;
-    console.log(`📋 Creating GitHub pull request for repository ${project.full_name}`);
+    this.logger_.info(`📋 Creating GitHub pull request for repository ${project.full_name}`);
 
     try {
       const resp = await this.http.requestJson<GithubPullRequest>(
@@ -127,14 +136,14 @@ export class GithubPlatformService extends GitPlatformService {
         JSON.stringify(requestBody)
       );
 
-      console.log(`✅ Created GitHub pull request: ${resp.html_url}`);
+      this.logger_.info(`✅ Created GitHub pull request: ${resp.html_url}`);
       
       // Add reviewers if specified (GitHub requires separate API call)
       if (reviewer_ids && reviewer_ids.length > 0) {
         const validReviewerIds = reviewer_ids.filter(id => id > 0);
         if (validReviewerIds.length > 0) {
           try {
-            console.log(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
+            this.logger_.info(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
             await this.addReviewersToRequest(project.full_name, resp.number, validReviewerIds);
           } catch (error) {
             console.warn(`⚠️  Failed to set reviewers: ${error}. PR created successfully but reviewers not assigned.`);
@@ -145,7 +154,7 @@ export class GithubPlatformService extends GitPlatformService {
       // Note: GitHub doesn't support auto-squash and auto-delete via API during PR creation
       // These settings would need to be configured in the repository settings or during merge
       if (squash || removeSourceBranch) {
-        console.log(`💡 Note: GitHub squash (${squash}) and delete branch (${removeSourceBranch}) settings will apply during merge`);
+        this.logger_.info(`💡 Note: GitHub squash (${squash}) and delete branch (${removeSourceBranch}) settings will apply during merge`);
       }
 
       // Convert to unified response format
@@ -188,7 +197,7 @@ export class GithubPlatformService extends GitPlatformService {
         },
         JSON.stringify(requestBody)
       );
-      console.log(`✅ Successfully added reviewers to PR #${prNumber}`);
+      this.logger_.info(`✅ Successfully added reviewers to PR #${prNumber}`);
     } catch (error) {
       // Don't throw here, just log the warning since the PR was already created successfully
       console.warn(`⚠️  Could not add reviewers to PR #${prNumber}: ${error}`);
