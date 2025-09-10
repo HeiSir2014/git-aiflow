@@ -63,47 +63,6 @@ export abstract class BaseAiflowApp {
     }
   }
 
-  /**
-   * Get target branch for merge request (default branch or fallback)
-   * @returns Target branch name
-   */
-  protected getTargetBranch(): string {
-    try {
-      // Try to get the default branch from git remote
-      const currentBranch = this.git.getCurrentBranch();
-      try {
-        this.shell.run(`git rev-parse --verify origin/${currentBranch}`).trim();
-        return currentBranch;
-      } catch (fallbackError) {
-        console.warn(`⚠️  Could not determine target branch, check: ${fallbackError}`);
-      }
-
-      // Common default branch names to try
-      const defaultBranches = ['main', 'master', 'develop'];
-
-      // If current branch is one of the default branches, use it
-      if (defaultBranches.includes(currentBranch)) {
-        return currentBranch;
-      }
-
-      // Otherwise, try to find the default branch by checking which exists
-      for (const branch of defaultBranches) {
-        try {
-          // Check if remote branch exists
-          this.shell.run(`git rev-parse --verify origin/${branch}`);
-          return branch;
-        } catch {
-          // Branch doesn't exist, try next
-        }
-      }
-
-      // Fallback to main if nothing else works
-      return 'main';
-    } catch (error) {
-      console.warn(`⚠️  Could not determine target branch, using 'main': ${error}`);
-      return 'main';
-    }
-  }
 
   /**
    * Interactive file selection for staging
@@ -311,10 +270,19 @@ export abstract class BaseAiflowApp {
   }
 
   /**
-   * Create automated merge request from staged changes
+   * Check if commit-only mode is enabled via CLI arguments
+   * @returns True if --commit-only or -co is present in CLI args
    */
-  async run(): Promise<void> {
-    console.log(`🚀 AIFlow Tool`);
+  private isCommitOnlyMode(): boolean {
+    const args = process.argv.slice(2);
+    return args.includes('--commit-only') || args.includes('-co');
+  }
+
+  /**
+   * Commit only workflow - just commit staged changes without creating MR
+   */
+  async runCommitOnly(): Promise<void> {
+    console.log(`🚀 AIFlow Tool - Commit Only Mode`);
     console.log(`📁 Working directory: ${process.cwd()}`);
     console.log(`⏰ Started at: ${new Date().toISOString()}`);
     console.log('─'.repeat(50));
@@ -347,8 +315,188 @@ export abstract class BaseAiflowApp {
         console.log(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
       }
 
+      // Step 2: Generate commit message using AI
+      console.log(`🤖 Generating commit message...`);
+      const { commit } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+
+      console.log("✅ Generated commit message:", commit);
+
+      // Step 3: Commit changes
+      console.log(`📝 Committing changes...`);
+      this.git.commit(commit);
+
+      console.log(`✅ Successfully committed changes!`);
+      console.log(`📝 Commit message: ${commit}`);
+      console.log(`📁 Changed files: ${changedFiles.length}`);
+
+    } catch (error) {
+      console.error(`❌ Error during commit:`, error);
+      process.exit(1);
+    }
+  }
+
+  /**
+   * Create MR from base branch to current branch when no staged changes
+   */
+  async runFromBaseBranch(): Promise<void> {
+    console.log(`🔍 No staged changes found. Detecting base branch for MR creation...`);
+    
+    // Step 1: Get current branch
+    const currentBranch = this.git.getCurrentBranch();
+    console.log(`🌿 Current branch: ${currentBranch}`);
+    
+    // Step 2: Detect base branch
+    const baseBranch = this.git.getBaseBranch();
+    if (!baseBranch) {
+      console.error("❌ Could not detect base branch. Please specify target branch manually or stage some changes.");
+      process.exit(1);
+    }
+    
+    console.log(`🎯 Detected base branch: ${baseBranch}`);
+    
+    // Step 3: Get diff from base branch to current branch
+    const baseToCurrentDiff = this.git.getDiffBetweenBranches(baseBranch, currentBranch);
+    
+    if (!baseToCurrentDiff) {
+      console.log("✅ No differences found between base branch and current branch.");
+      console.log("💡 Current branch is up to date with base branch.");
+      process.exit(0);
+    }
+    
+    console.log(`📊 Found changes between ${baseBranch} and ${currentBranch}`);
+    
+    // Step 4: Get changed files
+    const changedFiles = this.git.getChangedFilesBetweenBranches(baseBranch, currentBranch);
+    console.log(`📁 Changed files: ${changedFiles.length}`);
+    
+    // Step 5: Generate commit message and branch name using AI
+    console.log(`🤖 Generating commit message and branch name...`);
+    const { commit, branch, description } = await this.openai.generateCommitAndBranch(baseToCurrentDiff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+
+    console.log("✅ Generated commit message:", commit);
+    console.log("✅ Generated branch suggestion:", branch);
+    console.log("✅ Generated MR description:", description);
+
+    const branchName = currentBranch;
+    console.log("✅ Generated branch name:", branchName);
+    this.git.push(branchName);
+
+    // Step 8: Create Merge Request
+    console.log(`📋 Creating Merge Request...`);
+    const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
+    const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
+    
+    // Get merge request configuration
+    const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
+    const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
+    const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+
+    const mergeRequestOptions: MergeRequestOptions = {
+      squash: squashCommits,
+      removeSourceBranch: removeSourceBranch,
+      description: description
+    };
+
+    // Add assignee configuration if specified
+    if (typeof assigneeId === 'number' && assigneeId > 0) {
+      mergeRequestOptions.assignee_id = assigneeId;
+    }
+    
+    if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+      mergeRequestOptions.assignee_ids = assigneeIds;
+    }
+    
+    if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
+      mergeRequestOptions.reviewer_ids = reviewerIds;
+    }
+
+    const mrUrl = await this.gitPlatform.createMergeRequest(
+      branchName,
+      baseBranch,
+      commit,
+      mergeRequestOptions
+    );
+    console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
+
+    // Step 9: Send notification
+    if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
+      console.log(`📢 Sending notification...`);
+      await this.wecom.sendMergeRequestNotice(branchName, baseBranch, mrUrl, commit, changedFiles);
+      console.log("📢 Notification sent via WeCom webhook.");
+    }
+
+    console.log(`✅ AIFlow workflow completed successfully!`);
+
+    // Step 10: Print the MR info and copy to clipboard
+    const isGitHub = this.gitPlatform.getPlatformName() === 'github';
+    const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
+    const requestAbbr = isGitHub ? 'PR' : 'MR';
+
+    const outputMrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
+📋 ${requestAbbr} 链接: ${mrUrl}
+📝 提交信息:
+${commit}
+🌿 分支信息: ${branchName} ->  ${baseBranch}
+📁 变更文件 (${changedFiles.length} 个)${changedFiles.length > 10 ? `前10个: ` : ': '}
+${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles.length > 10 ? `\n...${changedFiles.length - 10}个文件` : ''}`;
+    const consoleMrInfo = `
+${'-'.repeat(50)}
+${outputMrInfo}
+${'-'.repeat(50)}
+`;
+    console.log(consoleMrInfo);
+    await clipboard.write(outputMrInfo);
+    console.log("📋 MR info copied to clipboard.");
+  }
+
+  /**
+   * Create automated merge request from staged changes
+   */
+  async run(): Promise<void> {
+    console.log(`🚀 AIFlow Tool`);
+    console.log(`📁 Working directory: ${process.cwd()}`);
+    console.log(`⏰ Started at: ${new Date().toISOString()}`);
+    console.log('─'.repeat(50));
+
+    try {
+      // Check if commit-only mode is enabled (from CLI args, not config)
+      const commitOnly = this.isCommitOnlyMode();
+      if (commitOnly) {
+        await this.runCommitOnly();
+        return;
+      }
+
+      // Step 1: Check for staged changes
+      let diff = this.git.getDiff();
+      let changedFiles = this.git.getChangedFiles();
+      
+      if (!diff) {
+        console.log("📋 No staged changes found. Let's select files to stage...");
+        
+        // Interactive file selection
+        const filesStaged = await this.interactiveFileSelection();
+        
+        if (!filesStaged) {
+          console.log("❌ No files were staged. Trying to create MR from base branch...");
+          await this.runFromBaseBranch();
+          return;
+        }
+        
+        // Re-check for staged changes after interactive selection
+        diff = this.git.getDiff();
+        changedFiles = this.git.getChangedFiles();
+        
+        if (!diff) {
+          console.log("❌ Still no staged changes found. Trying to create MR from base branch...");
+          await this.runFromBaseBranch();
+          return;
+        }
+        
+        console.log(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
+      }
+
       // Step 2: Determine target branch
-      const targetBranch = this.getTargetBranch();
+      const targetBranch = this.git.getTargetBranch();
       console.log(`🎯 Target branch: ${targetBranch}`);
 
       // Step 3: Generate commit message and branch name using AI
@@ -480,6 +628,7 @@ Configuration Options (可以通过 CLI 参数覆盖配置文件):
   -we, --wecom-enable <bool>            启用企业微信通知
   -sc, --squash-commits <bool>          压缩提交
   -rsb, --remove-source-branch <bool>   删除源分支
+  -co, --commit-only                    仅提交更改，不创建MR
 
 Description:
   使用 AI 生成的提交信息和分支名称自动创建合并请求
@@ -511,6 +660,8 @@ Examples:
   aiflow init                                            # 交互式初始化本地配置
   aiflow init --global                                   # 交互式初始化全局配置
   aiflow                                                 # 使用配置文件运行
+  aiflow --commit-only                                   # 仅提交更改，不创建MR
+  aiflow -co                                             # 仅提交更改，不创建MR (短参数)
   aiflow -ok sk-123 -gat github.com=ghp_456             # 使用 CLI 参数覆盖配置
   aiflow -gat gitlab.example.com=glpat-456 -we true     # 多平台访问令牌配置
 `);
@@ -541,6 +692,9 @@ Examples:
       process.exit(0);
     }
 
+    // Check for commit-only mode early (before config validation)
+    const isCommitOnly = args.includes('--commit-only') || args.includes('-co');
+    
     // Parse CLI configuration arguments
     const cliConfig = parseCliArgs(args);
 
@@ -549,8 +703,34 @@ Examples:
     // Initialize services with configuration
     await app.initializeServices(cliConfig);
 
-    // Validate configuration before starting
-    app.validateConfiguration();
+    // For commit-only mode, skip some validations that are not needed
+    if (isCommitOnly) {
+      // Only validate OpenAI configuration for commit-only mode
+      const requiredConfigs = [
+        { key: 'openai.key', name: 'OpenAI API Key' },
+        { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
+        { key: 'openai.model', name: 'OpenAI Model' },
+      ];
+
+      const missing: string[] = [];
+      for (const config of requiredConfigs) {
+        const value = getConfigValue(app.config, config.key, '');
+        if (!value) {
+          missing.push(config.name);
+        }
+      }
+
+      if (missing.length > 0) {
+        console.error(`❌ Missing required configuration for commit-only mode: ${missing.join(', ')}`);
+        console.error(`💡 Please run 'aiflow init' to configure or check your config files`);
+        process.exit(1);
+      }
+
+      console.log(`✅ Configuration validation passed for commit-only mode`);
+    } else {
+      // Full validation for normal MR creation mode
+      app.validateConfiguration();
+    }
 
     // Run the MR creation workflow
     await app.run();
@@ -558,10 +738,10 @@ Examples:
 }
 
 // Only run if this file is executed directly
-const isMain = path.basename(fileURLToPath(import.meta.url)).toLowerCase() === path.basename(process.argv[1]).toLowerCase();
-if (isMain) {
-  GitAutoMrApp.main().catch((error) => {
-    console.error('❌ Unhandled error:', error);
-    process.exit(1);
-  });
-}
+const run_file = path.basename(process.argv[1]).toLowerCase();
+const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
+const isMain = run_file && (['aiflow', 'git-aiflow', import_file].includes(run_file));
+isMain && GitAutoMrApp.main().catch((error) => {
+  console.error('❌ Unhandled error:', error);
+  process.exit(1);
+});
