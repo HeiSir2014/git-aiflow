@@ -100,7 +100,7 @@ ${escapedMessage}
       this.shell.run(powershellCommand);
     } else {
       // For single line messages, use standard escaping
-      const escapedMessage = message.replace(/"/g, '\\"').replace(/`/g, '\\`');
+      const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`');
       this.shell.run(`git commit -m "${escapedMessage}"`);
     }
   }
