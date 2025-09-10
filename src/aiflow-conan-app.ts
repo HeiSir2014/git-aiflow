@@ -66,7 +66,7 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const changedFiles = this.git.getChangedFiles();
 
       // Step 3: Determine target branch
-      const targetBranch = this.getTargetBranch();
+      const targetBranch = this.git.getTargetBranch();
       console.log(`🎯 Target branch: ${targetBranch}`);
 
       // Step 4: Generate commit message and branch name using AI
