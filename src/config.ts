@@ -94,6 +94,7 @@ export interface AiflowConfig {
   git?: {
     squashCommits?: boolean;
     removeSourceBranch?: boolean;
+    generate_lang?: string;
   };
 
   // Merge Request Configuration
@@ -187,6 +188,7 @@ export class ConfigLoader {
       'WECOM_ENABLE': 'wecom.enable',
       'SQUASH_COMMITS': 'git.squashCommits',
       'REMOVE_SOURCE_BRANCH': 'git.removeSourceBranch',
+      'GIT_GENERATE_LANG': 'git.generate_lang',
       'MERGE_REQUEST_ASSIGNEE_ID': 'merge_request.assignee_id',
       'MERGE_REQUEST_ASSIGNEE_IDS': 'merge_request.assignee_ids',
       'MERGE_REQUEST_REVIEWER_IDS': 'merge_request.reviewer_ids',
@@ -206,7 +208,7 @@ export class ConfigLoader {
       const envValue = process.env[envKey];
       if (envValue !== undefined) {
         let parsedValue = this.parseEnvValue(envValue);
-        
+
         // Handle array fields for merge request configuration
         if (configPath === 'merge_request.assignee_ids' || configPath === 'merge_request.reviewer_ids') {
           if (typeof parsedValue === 'string') {
@@ -222,7 +224,7 @@ export class ConfigLoader {
             parsedValue = isNaN(num) ? 0 : num;
           }
         }
-        
+
         this.setNestedValue(config, configPath, parsedValue);
         config._sources.set(configPath, { source: 'env' });
       }
@@ -666,6 +668,10 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         config.git = { ...config.git, removeSourceBranch: value !== 'false' };
         i++;
         break;
+      case 'git-generate-lang':
+        config.git = { ...config.git, generate_lang: value };
+        i++;
+        break;
       case 'merge-request-assignee-id':
         const assigneeId = parseInt(value, 10);
         config.merge_request = { ...config.merge_request, assignee_id: isNaN(assigneeId) ? 0 : assigneeId };
@@ -720,9 +726,10 @@ function getShortArgMapping(shortKey: string): string {
     'ww': 'wecom-webhook',
     'we': 'wecom-enable',
 
-    // Git shortcuts (Squash Commits, Remove Source Branch)
+    // Git shortcuts (Squash Commits, Remove Source Branch, Generate Language)
     'sc': 'squash-commits',
     'rsb': 'remove-source-branch',
+    'ggl': 'git-generate-lang',
 
     // Merge Request shortcuts (Merge Request Assignee ID, Assignee IDs, Reviewer IDs)
     'mrai': 'merge-request-assignee-id',
@@ -769,6 +776,7 @@ Conan 配置 - C++包管理:
 Git 配置 - 合并请求行为:
   -sc, --squash-commits <bool>          压缩提交 (可选，合并时压缩多个提交)
   -rsb, --remove-source-branch <bool>   删除源分支 (可选，合并后删除分支)
+  -ggl, --git-generate-lang <lang>      生成语言 (可选，AI生成内容的语言，如: zh-CN, en, ja)
 
 合并请求配置 - 指派和审查者:
   -mrai, --merge-request-assignee-id <id>      单个指派人用户ID (可选，设置为0取消指派)
@@ -824,6 +832,26 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
   console.log(`📁 配置位置: ${configPath}`);
   console.log('💡 提示：直接回车使用默认值或跳过可选配置\n');
 
+  // Check if this is incremental configuration
+  const hasExistingConfig = fs.existsSync(configPath);
+  let hasGlobalConfig = false;
+  let globalConfigPath = '';
+
+  if (!isGlobal) {
+    // For local config, check if global config exists
+    const userDataDir = getUserDataDir();
+    globalConfigPath = path.join(userDataDir, 'aiflow', 'config.yaml');
+    hasGlobalConfig = fs.existsSync(globalConfigPath);
+
+    if (hasGlobalConfig) {
+      console.log('📋 检测到全局配置，您可以选择增量配置模式');
+      console.log('💡 增量配置模式：基于全局配置，只配置您想要在本地覆盖的模块\n');
+    }
+  } else if (hasExistingConfig) {
+    console.log('📋 检测到现有全局配置，您可以选择增量配置模式');
+    console.log('💡 增量配置模式：只配置您想要修改的模块，其他保持不变\n');
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -836,6 +864,54 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
   };
 
   try {
+    // Incremental configuration mode selection
+    let configModules: string[] = [];
+    const canUseIncrementalMode = (hasExistingConfig && isGlobal) || (hasGlobalConfig && !isGlobal);
+
+    if (canUseIncrementalMode) {
+      const incrementalMode = await question('是否使用增量配置模式？(y/N): ');
+      if (incrementalMode.toLowerCase() === 'y' || incrementalMode.toLowerCase() === 'yes') {
+        console.log('\n📋 请选择要配置的模块 (可多选，用逗号分隔):');
+        console.log('  1. openai     - OpenAI API 配置');
+        console.log('  2. git-tokens - Git 访问令牌配置');
+        console.log('  3. conan      - Conan 配置');
+        console.log('  4. wecom      - 企业微信配置');
+        console.log('  5. git        - Git 行为配置');
+        console.log('  6. mr         - 合并请求配置');
+        console.log('  all           - 配置所有模块\n');
+
+        const selectedModules = await question('选择模块 (例如: 1,5 或 openai,git): ');
+        if (selectedModules.trim()) {
+          const modules = selectedModules.split(',').map(m => m.trim().toLowerCase());
+          configModules = modules.flatMap(module => {
+            switch (module) {
+              case '1': case 'openai': return ['openai'];
+              case '2': case 'git-tokens': return ['git-tokens'];
+              case '3': case 'conan': return ['conan'];
+              case '4': case 'wecom': return ['wecom'];
+              case '5': case 'git': return ['git'];
+              case '6': case 'mr': return ['mr'];
+              case 'all': return ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+              default: return [];
+            }
+          }).filter((v, i, arr) => arr.indexOf(v) === i); // Remove duplicates
+        }
+
+        if (configModules.length === 0) {
+          console.log('❌ 未选择任何模块，退出配置');
+          rl.close();
+          return;
+        }
+
+        console.log(`\n✅ 将配置以下模块: ${configModules.join(', ')}\n`);
+      } else {
+        // Full configuration mode
+        configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+      }
+    } else {
+      // Full configuration mode for new configs
+      configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+    }
     // Load existing configuration if available
     let configData: any = {
       openai: {},
@@ -846,21 +922,43 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       merge_request: {}
     };
 
-    // Try to load existing config file
+    // For local config, first try to load global config as base
+    if (!isGlobal && hasGlobalConfig) {
+      try {
+        const globalConfigContent = fs.readFileSync(globalConfigPath, 'utf8');
+        const globalConfig = yaml.load(globalConfigContent) as any;
+        if (globalConfig) {
+          configData = {
+            openai: globalConfig.openai || {},
+            git_access_tokens: globalConfig.git_access_tokens || {},
+            conan: globalConfig.conan || {},
+            wecom: globalConfig.wecom || {},
+            git: globalConfig.git || {},
+            merge_request: globalConfig.merge_request || {}
+          };
+          console.log('📋 已加载全局配置作为基础配置\n');
+        }
+      } catch (error) {
+        console.log('⚠️  读取全局配置文件失败，将使用空配置\n');
+      }
+    }
+
+    // Then try to load existing local/current config file to override
     if (fs.existsSync(configPath)) {
       try {
         const existingConfigContent = fs.readFileSync(configPath, 'utf8');
         const existingConfig = yaml.load(existingConfigContent) as any;
         if (existingConfig) {
+          // Merge existing config over the base config
           configData = {
-            openai: existingConfig.openai || {},
-            git_access_tokens: existingConfig.git_access_tokens || {},
-            conan: existingConfig.conan || {},
-            wecom: existingConfig.wecom || {},
-            git: existingConfig.git || {},
-            merge_request: existingConfig.merge_request || {}
+            openai: { ...configData.openai, ...(existingConfig.openai || {}) },
+            git_access_tokens: { ...configData.git_access_tokens, ...(existingConfig.git_access_tokens || {}) },
+            conan: { ...configData.conan, ...(existingConfig.conan || {}) },
+            wecom: { ...configData.wecom, ...(existingConfig.wecom || {}) },
+            git: { ...configData.git, ...(existingConfig.git || {}) },
+            merge_request: { ...configData.merge_request, ...(existingConfig.merge_request || {}) }
           };
-          console.log('📋 发现现有配置文件，将作为默认值使用\n');
+          console.log(`📋 发现现有${isGlobal ? '全局' : '本地'}配置文件，将作为默认值使用\n`);
         }
       } catch (error) {
         console.log('⚠️  读取现有配置文件失败，将创建新配置\n');
@@ -868,135 +966,164 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     }
 
     // OpenAI configuration
-    console.log('🤖 OpenAI 配置:');
-    const currentKey = configData.openai.key ? '已设置' : '';
-    const openaiKey = await question(`  OpenAI API 密钥 (必需)${currentKey ? ` [${currentKey}]` : ''}: `);
-    if (openaiKey.trim()) configData.openai.key = openaiKey.trim();
+    if (configModules.includes('openai')) {
+      console.log('🤖 OpenAI 配置:');
+      const currentKey = configData.openai.key ? '已设置' : '';
+      const openaiKey = await question(`  OpenAI API 密钥 (必需)${currentKey ? ` [${currentKey}]` : ''}: `);
+      if (openaiKey.trim()) configData.openai.key = openaiKey.trim();
 
-    const currentBaseUrl = configData.openai.baseUrl || 'https://api.openai.com/v1';
-    const openaiBaseUrl = await question(`  OpenAI API 地址 [${currentBaseUrl}]: `);
-    configData.openai.baseUrl = openaiBaseUrl.trim() || currentBaseUrl;
+      const currentBaseUrl = configData.openai.baseUrl || 'https://api.openai.com/v1';
+      const openaiBaseUrl = await question(`  OpenAI API 地址 [${currentBaseUrl}]: `);
+      configData.openai.baseUrl = openaiBaseUrl.trim() || currentBaseUrl;
 
-    const currentModel = configData.openai.model || 'gpt-3.5-turbo';
-    const openaiModel = await question(`  OpenAI 模型 [${currentModel}]: `);
-    configData.openai.model = openaiModel.trim() || currentModel;
+      const currentModel = configData.openai.model || 'gpt-3.5-turbo';
+      const openaiModel = await question(`  OpenAI 模型 [${currentModel}]: `);
+      configData.openai.model = openaiModel.trim() || currentModel;
+    }
 
     // Git access tokens configuration
-    console.log('\n🔑 Git 访问令牌配置:');
-    // Keep existing tokens, don't reset
-    if (!configData.git_access_tokens) {
-      configData.git_access_tokens = {};
-    }
-
-    // Show existing tokens
-    const existingHosts = Object.keys(configData.git_access_tokens);
-    if (existingHosts.length > 0) {
-      console.log('  现有配置的Git平台:');
-      existingHosts.forEach(host => {
-        console.log(`    • ${host}: 已设置`);
-      });
-      console.log('');
-    }
-
-    console.log('  您可以添加新的Git平台访问令牌或修改现有配置，直接回车跳过');
-    // Git platform tokens with loop for multiple platforms
-    while (true) {
-      const gitHost = await question('  Git 平台主机名 (如: github.com, gitlab.example.com, gitee.com，留空结束): ');
-      if (!gitHost.trim()) break;
-
-      const currentToken = configData.git_access_tokens[gitHost.trim()];
-      const tokenPrompt = currentToken
-        ? `  ${gitHost.trim()} 访问令牌 [已设置]: `
-        : `  ${gitHost.trim()} 访问令牌: `;
-
-      const gitToken = await question(tokenPrompt);
-      if (gitToken.trim()) {
-        configData.git_access_tokens[gitHost.trim()] = gitToken.trim();
-        console.log(`    ✅ 已${currentToken ? '更新' : '添加'} ${gitHost.trim()} 的访问令牌`);
+    if (configModules.includes('git-tokens')) {
+      console.log('\n🔑 Git 访问令牌配置:');
+      // Keep existing tokens, don't reset
+      if (!configData.git_access_tokens) {
+        configData.git_access_tokens = {};
       }
 
-      const continueAdding = await question('  是否继续添加其他 Git 平台令牌？(y/N): ');
-      if (continueAdding.toLowerCase() !== 'y' && continueAdding.toLowerCase() !== 'yes') {
-        break;
+      // Show existing tokens
+      const existingHosts = Object.keys(configData.git_access_tokens);
+      if (existingHosts.length > 0) {
+        console.log('  现有配置的Git平台:');
+        existingHosts.forEach(host => {
+          console.log(`    • ${host}: 已设置`);
+        });
+        console.log('');
+      }
+
+      console.log('  您可以添加新的Git平台访问令牌或修改现有配置，直接回车跳过');
+      // Git platform tokens with loop for multiple platforms
+      while (true) {
+        const gitHost = await question('  Git 平台主机名 (如: github.com, gitlab.example.com, gitee.com，留空结束): ');
+        if (!gitHost.trim()) break;
+
+        const currentToken = configData.git_access_tokens[gitHost.trim()];
+        const tokenPrompt = currentToken
+          ? `  ${gitHost.trim()} 访问令牌 [已设置]: `
+          : `  ${gitHost.trim()} 访问令牌: `;
+
+        const gitToken = await question(tokenPrompt);
+        if (gitToken.trim()) {
+          configData.git_access_tokens[gitHost.trim()] = gitToken.trim();
+          console.log(`    ✅ 已${currentToken ? '更新' : '添加'} ${gitHost.trim()} 的访问令牌`);
+        }
+
+        const continueAdding = await question('  是否继续添加其他 Git 平台令牌？(y/N): ');
+        if (continueAdding.toLowerCase() !== 'y' && continueAdding.toLowerCase() !== 'yes') {
+          break;
+        }
       }
     }
 
     // Conan configuration
-    console.log('\n📦 Conan 配置:');
-    const currentConanUrl = configData.conan.remoteBaseUrl || '';
-    const conanBaseUrl = await question(`  Conan 仓库 API 地址 (可选)${currentConanUrl ? ` [${currentConanUrl}]` : ''}: `);
-    if (conanBaseUrl.trim()) {
-      configData.conan.remoteBaseUrl = conanBaseUrl.trim();
-    } else if (!currentConanUrl) {
-      delete configData.conan.remoteBaseUrl;
-    }
+    if (configModules.includes('conan')) {
+      console.log('\n📦 Conan 配置:');
+      const currentConanUrl = configData.conan.remoteBaseUrl || '';
+      const conanBaseUrl = await question(`  Conan 仓库 API 地址 (可选)${currentConanUrl ? ` [${currentConanUrl}]` : ''}: `);
+      if (conanBaseUrl.trim()) {
+        configData.conan.remoteBaseUrl = conanBaseUrl.trim();
+      } else if (!currentConanUrl) {
+        delete configData.conan.remoteBaseUrl;
+      }
 
-    const currentConanRepo = configData.conan.remoteRepo || 'repo';
-    const conanRepo = await question(`  Conan 仓库名称 [${currentConanRepo}]: `);
-    configData.conan.remoteRepo = conanRepo.trim() || currentConanRepo;
+      const currentConanRepo = configData.conan.remoteRepo || 'repo';
+      const conanRepo = await question(`  Conan 仓库名称 [${currentConanRepo}]: `);
+      configData.conan.remoteRepo = conanRepo.trim() || currentConanRepo;
+    }
 
     // WeChat Work configuration
-    console.log('\n💬 企业微信配置:');
-    const currentWebhook = configData.wecom.webhook || '';
-    const wecomWebhook = await question(`  企业微信 Webhook 地址 (可选)${currentWebhook ? ` [已设置]` : ''}: `);
-    if (wecomWebhook.trim()) {
-      configData.wecom.webhook = wecomWebhook.trim();
-    } else if (!currentWebhook) {
-      delete configData.wecom.webhook;
-    }
+    if (configModules.includes('wecom')) {
+      console.log('\n💬 企业微信配置:');
+      const currentWebhook = configData.wecom.webhook || '';
+      const wecomWebhook = await question(`  企业微信 Webhook 地址 (可选)${currentWebhook ? ` [已设置]` : ''}: `);
+      if (wecomWebhook.trim()) {
+        configData.wecom.webhook = wecomWebhook.trim();
+      } else if (!currentWebhook) {
+        delete configData.wecom.webhook;
+      }
 
-    const currentEnable = configData.wecom.enable !== undefined ? configData.wecom.enable : true;
-    const wecomEnable = await question(`  启用企业微信通知 [${currentEnable}]: `);
-    configData.wecom.enable = wecomEnable.trim() === '' ? currentEnable : wecomEnable.trim() !== 'false';
+      const currentEnable = configData.wecom.enable !== undefined ? configData.wecom.enable : true;
+      const wecomEnable = await question(`  启用企业微信通知 [${currentEnable}]: `);
+      configData.wecom.enable = wecomEnable.trim() === '' ? currentEnable : wecomEnable.trim() !== 'false';
+    }
 
     // Git configuration
-    console.log('\n🌿 Git 配置:');
-    const currentSquash = configData.git.squashCommits !== undefined ? configData.git.squashCommits : true;
-    const squashCommits = await question(`  压缩提交 [${currentSquash}]: `);
-    configData.git.squashCommits = squashCommits.trim() === '' ? currentSquash : squashCommits.trim() !== 'false';
+    if (configModules.includes('git')) {
+      console.log('\n🌿 Git 配置:');
+      const currentSquash = configData.git.squashCommits !== undefined ? configData.git.squashCommits : true;
+      const squashCommits = await question(`  压缩提交 [${currentSquash}]: `);
+      configData.git.squashCommits = squashCommits.trim() === '' ? currentSquash : squashCommits.trim() !== 'false';
 
-    const currentRemove = configData.git.removeSourceBranch !== undefined ? configData.git.removeSourceBranch : true;
-    const removeSourceBranch = await question(`  删除源分支 [${currentRemove}]: `);
-    configData.git.removeSourceBranch = removeSourceBranch.trim() === '' ? currentRemove : removeSourceBranch.trim() !== 'false';
+      const currentRemove = configData.git.removeSourceBranch !== undefined ? configData.git.removeSourceBranch : true;
+      const removeSourceBranch = await question(`  删除源分支 [${currentRemove}]: `);
+      configData.git.removeSourceBranch = removeSourceBranch.trim() === '' ? currentRemove : removeSourceBranch.trim() !== 'false';
 
-    // Merge Request configuration
-    console.log('\n🔀 合并请求指派配置:');
-    const currentAssigneeId = configData.merge_request.assignee_id || 0;
-    const assigneeId = await question(`  单个指派人用户ID (可选，0表示取消指派) [${currentAssigneeId}]: `);
-    const parsedAssigneeId = parseInt(assigneeId.trim(), 10);
-    configData.merge_request.assignee_id = isNaN(parsedAssigneeId) ? currentAssigneeId : parsedAssigneeId;
-
-    const currentAssigneeIds = configData.merge_request.assignee_ids || [];
-    const assigneeIdsStr = currentAssigneeIds.length > 0 ? currentAssigneeIds.join(',') : '';
-    const assigneeIds = await question(`  指派人用户ID列表 (可选，逗号分隔，如: 1,2,3)${assigneeIdsStr ? ` [${assigneeIdsStr}]` : ''}: `);
-    if (assigneeIds.trim()) {
-      configData.merge_request.assignee_ids = assigneeIds.split(',').map(id => {
-        const num = parseInt(id.trim(), 10);
-        return isNaN(num) ? 0 : num;
-      }).filter(id => id >= 0);
-    } else if (!assigneeIdsStr) {
-      configData.merge_request.assignee_ids = [];
+      const currentLang = configData.git.generate_lang || 'en';
+      const generateLang = await question(`  AI生成语言 (en=英文, zh-CN=中文, ja=日文等) [${currentLang}]: `);
+      configData.git.generate_lang = generateLang.trim() || currentLang;
     }
 
-    const currentReviewerIds = configData.merge_request.reviewer_ids || [];
-    const reviewerIdsStr = currentReviewerIds.length > 0 ? currentReviewerIds.join(',') : '';
-    const reviewerIds = await question(`  审查者用户ID列表 (可选，逗号分隔，如: 1,2,3)${reviewerIdsStr ? ` [${reviewerIdsStr}]` : ''}: `);
-    if (reviewerIds.trim()) {
-      configData.merge_request.reviewer_ids = reviewerIds.split(',').map(id => {
-        const num = parseInt(id.trim(), 10);
-        return isNaN(num) ? 0 : num;
-      }).filter(id => id >= 0);
-    } else if (!reviewerIdsStr) {
-      configData.merge_request.reviewer_ids = [];
+    // Merge Request configuration
+    if (configModules.includes('mr')) {
+      console.log('\n🔀 合并请求指派配置:');
+      const currentAssigneeId = configData.merge_request.assignee_id || 0;
+      const assigneeId = await question(`  单个指派人用户ID (可选，0表示取消指派) [${currentAssigneeId}]: `);
+      const parsedAssigneeId = parseInt(assigneeId.trim(), 10);
+      configData.merge_request.assignee_id = isNaN(parsedAssigneeId) ? currentAssigneeId : parsedAssigneeId;
+
+      const currentAssigneeIds = configData.merge_request.assignee_ids || [];
+      const assigneeIdsStr = currentAssigneeIds.length > 0 ? currentAssigneeIds.join(',') : '';
+      const assigneeIds = await question(`  指派人用户ID列表 (可选，逗号分隔，如: 1,2,3)${assigneeIdsStr ? ` [${assigneeIdsStr}]` : ''}: `);
+      if (assigneeIds.trim()) {
+        configData.merge_request.assignee_ids = assigneeIds.split(',').map(id => {
+          const num = parseInt(id.trim(), 10);
+          return isNaN(num) ? 0 : num;
+        }).filter(id => id >= 0);
+      } else if (!assigneeIdsStr) {
+        configData.merge_request.assignee_ids = [];
+      }
+
+      const currentReviewerIds = configData.merge_request.reviewer_ids || [];
+      const reviewerIdsStr = currentReviewerIds.length > 0 ? currentReviewerIds.join(',') : '';
+      const reviewerIds = await question(`  审查者用户ID列表 (可选，逗号分隔，如: 1,2,3)${reviewerIdsStr ? ` [${reviewerIdsStr}]` : ''}: `);
+      if (reviewerIds.trim()) {
+        configData.merge_request.reviewer_ids = reviewerIds.split(',').map(id => {
+          const num = parseInt(id.trim(), 10);
+          return isNaN(num) ? 0 : num;
+        }).filter(id => id >= 0);
+      } else if (!reviewerIdsStr) {
+        configData.merge_request.reviewer_ids = [];
+      }
     }
 
     rl.close();
 
     // Create configuration file
-    await createConfigFile(configData, isGlobal);
+    await createConfigFile(configData, isGlobal, configModules, canUseIncrementalMode);
 
     console.log('\n✅ 配置初始化完成！');
-    console.log(`📁 配置文件已创建: ${isGlobal ? '全局配置' : '本地配置'}`);
+    if (canUseIncrementalMode && configModules.length < 6) {
+      if (isGlobal) {
+        console.log(`📁 已更新${configModules.join(', ')}模块的全局配置`);
+        console.log('💡 其他模块配置保持不变');
+      } else {
+        console.log(`📁 已创建本地配置，覆盖${configModules.join(', ')}模块`);
+        console.log('💡 其他模块将继承全局配置');
+      }
+    } else {
+      console.log(`📁 配置文件已创建: ${isGlobal ? '全局配置' : '本地配置'}`);
+      if (!isGlobal && hasGlobalConfig) {
+        console.log('💡 本地配置将覆盖全局配置的对应部分');
+      }
+    }
     console.log('💡 您可以随时手动编辑配置文件进行修改');
 
   } catch (error) {
@@ -1009,15 +1136,35 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
 /**
  * Create configuration file
  */
-export async function createConfigFile(configData: any, isGlobal: boolean): Promise<void> {
+export async function createConfigFile(
+  configData: any,
+  isGlobal: boolean,
+  configModules: string[] = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'],
+  isIncrementalMode: boolean = false
+): Promise<void> {
   // Calculate actual global config path
   const userDataDir = getUserDataDir();
   const globalConfigPath = path.join(userDataDir, 'aiflow', 'config.yaml');
   // Generate YAML content with comments
-  const yamlContent = `# AIFlow 配置文件
+  let yamlContent = '';
+
+  if (isIncrementalMode && !isGlobal && configModules.length < 6) {
+    // For incremental local config, only include selected modules
+    yamlContent = `# AIFlow 本地配置文件 (增量模式)
+# 此配置将覆盖全局配置的对应部分
 # 配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(${globalConfigPath}) > 环境变量
 
-# OpenAI API 配置 - 用于AI驱动的功能
+`;
+  } else {
+    yamlContent = `# AIFlow 配置文件
+# 配置优先级: 命令行参数 > 本地配置(.aiflow/config.yaml) > 全局配置(${globalConfigPath}) > 环境变量
+
+`;
+  }
+
+  // Add sections based on selected modules
+  if (configModules.includes('openai')) {
+    yamlContent += `# OpenAI API 配置 - 用于AI驱动的功能
 openai:
   # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
   key: ${configData.openai.key || 'your-openai-api-key'}
@@ -1028,11 +1175,15 @@ openai:
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: ${configData.openai.model}
 
-# Git 访问令牌配置 - 支持多个Git托管平台
+`;
+  }
+
+  if (configModules.includes('git-tokens')) {
+    yamlContent += `# Git 访问令牌配置 - 支持多个Git托管平台
 git_access_tokens:
 ${Object.keys(configData.git_access_tokens || {}).length > 0
-      ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
-      : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+        ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
+        : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
   # github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
   # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
@@ -1041,7 +1192,11 @@ ${Object.keys(configData.git_access_tokens || {}).length > 0
   # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
   # gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx`}
 
-# Conan 包管理器配置 - 用于C++包管理和版本更新
+`;
+  }
+
+  if (configModules.includes('conan')) {
+    yamlContent += `# Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
   # Conan 远程仓库基础URL (Conan操作时必需) - Conan包仓库的API地址
   ${configData.conan.remoteBaseUrl ? `remoteBaseUrl: ${configData.conan.remoteBaseUrl}` : '# remoteBaseUrl: https://conan.example.com'}
@@ -1049,7 +1204,11 @@ conan:
   # Conan 远程仓库名称 (可选) - 默认使用的仓库名称，默认为'repo'
   remoteRepo: ${configData.conan.remoteRepo}
 
-# 企业微信通知配置 - 用于发送操作结果通知
+`;
+  }
+
+  if (configModules.includes('wecom')) {
+    yamlContent += `# 企业微信通知配置 - 用于发送操作结果通知
 wecom:
   # 启用企业微信通知 (可选) - 是否开启通知功能，默认为false
   enable: ${configData.wecom.enable}
@@ -1057,15 +1216,26 @@ wecom:
   # 企业微信机器人Webhook地址 (可选) - 用于发送通知消息的机器人地址
   ${configData.wecom.webhook ? `webhook: ${configData.wecom.webhook}` : '# webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-key'}
 
-# Git 合并请求配置 - 控制MR的默认行为
+`;
+  }
+
+  if (configModules.includes('git')) {
+    yamlContent += `# Git 合并请求配置 - 控制MR的默认行为
 git:
   # 压缩提交 (可选) - 合并时是否将多个提交压缩为一个，默认为true
   squashCommits: ${configData.git.squashCommits}
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: ${configData.git.removeSourceBranch}
+  
+  # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
+  generate_lang: ${configData.git.generate_lang}
 
-# 合并请求指派配置 - 配置指派人和审查者
+`;
+  }
+
+  if (configModules.includes('mr')) {
+    yamlContent += `# 合并请求指派配置 - 配置指派人和审查者
 merge_request:
   # 单个指派人用户ID (可选) - 设置为0或留空取消指派
   assignee_id: ${configData.merge_request?.assignee_id || 0}
@@ -1076,6 +1246,7 @@ merge_request:
   # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
   reviewer_ids: ${configData.merge_request?.reviewer_ids ? JSON.stringify(configData.merge_request.reviewer_ids) : '[]'}
 `;
+  }
 
   // Determine config path
   let configPath: string;
