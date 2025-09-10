@@ -54,6 +54,52 @@ export class GitService {
   }
 
   /**
+   * Get diff between two branches
+   * @param baseBranch Base branch name
+   * @param targetBranch Target branch name
+   * @returns Git diff output between branches
+   */
+  getDiffBetweenBranches(baseBranch: string, targetBranch: string): string {
+    try {
+      if (!baseBranch || !targetBranch) {
+        this.logger.warn('Both baseBranch and targetBranch must be provided');
+        return '';
+      }
+
+      const diffOutput = this.shell.run(`git diff ${baseBranch}...${targetBranch}`).trim();
+      this.logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
+      return diffOutput;
+    } catch (error) {
+      this.logger.error(`Error getting diff between branches ${baseBranch} and ${targetBranch}:`, error);
+      return '';
+    }
+  }
+
+  /**
+   * Get list of changed files between two branches
+   * @param baseBranch Base branch name
+   * @param targetBranch Target branch name
+   * @returns Array of changed file paths
+   */
+  getChangedFilesBetweenBranches(baseBranch: string, targetBranch: string): string[] {
+    try {
+      if (!baseBranch || !targetBranch) {
+        this.logger.warn('Both baseBranch and targetBranch must be provided');
+        return [];
+      }
+
+      const filesOutput = this.shell.run(`git diff --name-only ${baseBranch}...${targetBranch}`).trim();
+      const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
+      
+      this.logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
+      return files;
+    } catch (error) {
+      this.logger.error(`Error getting changed files between branches ${baseBranch} and ${targetBranch}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Add specific file to staging area
    * @param filePath File path to add
    */
@@ -428,10 +474,67 @@ ${escapedMessage}
   }
 
   /**
+   * Get target branch for merge request (default branch or fallback)
+   * @returns Target branch name
+   */
+  getTargetBranch(): string {
+    try {
+      // Try to get the default branch from git remote
+      const currentBranch = this.getCurrentBranch();
+      if (this.hasRemoteBranch(`origin/${currentBranch}`)) {
+        return currentBranch;
+      }
+
+      this.logger.debug(`Current branch ${currentBranch} does not exist in remote`);
+
+      const baseBranch = this.getBaseBranch();
+      if (baseBranch) {
+        return baseBranch;
+      }
+
+      // Common default branch names to try
+      const defaultBranches = ['main', 'master', 'develop'];
+
+      // If current branch is one of the default branches, use it
+      if (defaultBranches.includes(currentBranch)) {
+        return currentBranch;
+      }
+
+      // Otherwise, try to find the default branch by checking which exists
+      for (const branch of defaultBranches) {
+        if (this.hasRemoteBranch(`origin/${branch}`)) {
+          return branch;
+        }
+      }
+
+      // Fallback to main if nothing else works
+      return 'main';
+    } catch (error) {
+      this.logger.warn(`Could not determine target branch, using 'main': ${error}`);
+      return 'main';
+    }
+  }
+
+  /**
    * Get current commit hash
    */
   getCurrentCommit(): string {
     return this.shell.run("git rev-parse HEAD").trim();
+  }
+
+  /**
+   * Check if a remote branch exists
+   * @param branchName Branch name to check (e.g., 'origin/main')
+   * @returns True if branch exists, false otherwise
+   */
+  hasRemoteBranch(branchName: string): boolean {
+    try {
+      this.shell.run(`git rev-parse --verify ${branchName}`).trim();
+      return true;
+    } catch (error) {
+      this.logger.debug(`Remote branch ${branchName} does not exist`);
+      return false;
+    }
   }
 
   /**
@@ -624,5 +727,129 @@ ${escapedMessage}
     }
 
     this.logger.info('─'.repeat(50));
+  }
+
+  /**
+   * Get the most likely parent branch of the current branch
+   * @returns Base branch name or null if not found or in detached HEAD
+   */
+  getBaseBranch(): string | null {
+    try {
+      const currentBranch = this.getCurrentBranch();
+      
+      // Return null if in detached HEAD
+      if (currentBranch === 'detached' || currentBranch === 'unknown') {
+        this.logger.debug('Current branch is detached or unknown, cannot determine base branch');
+        return null;
+      }
+
+      // Get all local branches excluding current branch
+      const allBranches = this.shell.run("git branch --format='%(refname:short)'").trim().split('\n');
+      const candidateBranches = allBranches.filter(branch => 
+        branch.trim() !== currentBranch && 
+        branch.trim() !== '' &&
+        !branch.includes('HEAD')
+      );
+
+      if (candidateBranches.length === 0) {
+        this.logger.debug('No candidate branches found for base branch detection');
+        return null;
+      }
+
+      this.logger.debug(`Checking ${candidateBranches.length} candidate branches for base branch`);
+
+      let bestBaseBranch: string | null = null;
+      let minBehind = Infinity;
+
+      for (const branch of candidateBranches) {
+        try {
+          // Get ahead/behind counts using git rev-list
+          const result = this.shell.run(`git rev-list --left-right --count ${branch}...${currentBranch}`).trim();
+          const [behind, ahead] = result.split('\t').map(num => parseInt(num.trim(), 10));
+
+          this.logger.debug(`Branch ${branch}: behind=${behind}, ahead=${ahead}`);
+
+          // Priority: behind = 0 and ahead > 0 (current branch is ahead of this branch)
+          if (behind === 0 && ahead > 0) {
+            this.logger.debug(`Found perfect base branch: ${branch} (behind=0, ahead=${ahead})`);
+            return branch;
+          }
+
+          // Fallback: choose branch with minimum behind count
+          if (behind < minBehind) {
+            minBehind = behind;
+            bestBaseBranch = branch;
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to check branch ${branch}: ${error}`);
+          continue;
+        }
+      }
+
+      if (bestBaseBranch) {
+        this.logger.debug(`Selected base branch: ${bestBaseBranch} (behind=${minBehind})`);
+      }
+
+      return bestBaseBranch;
+    } catch (error) {
+      this.logger.error('Error getting base branch:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get merge-base commit hash between current branch and target branch
+   * @param otherBranch Target branch name
+   * @returns Merge-base commit hash or null if not found
+   */
+  getMergeBase(otherBranch: string): string | null {
+    try {
+      if (!otherBranch || otherBranch.trim() === '') {
+        this.logger.warn('Empty branch name provided for merge-base');
+        return null;
+      }
+
+      const mergeBase = this.shell.run(`git merge-base HEAD ${otherBranch}`).trim();
+      
+      if (!mergeBase || mergeBase === '') {
+        this.logger.warn(`No merge-base found between current branch and ${otherBranch}`);
+        return null;
+      }
+
+      this.logger.debug(`Merge-base between current branch and ${otherBranch}: ${mergeBase}`);
+      return mergeBase;
+    } catch (error) {
+      this.logger.error(`Error getting merge-base with branch ${otherBranch}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get simplified branch graph visualization (similar to GitLens)
+   * @param limit Maximum number of commits to show (default: 20)
+   * @returns String representation of branch graph
+   */
+  getBranchGraph(limit: number = 20): string {
+    try {
+      if (limit <= 0) {
+        this.logger.warn('Invalid limit for branch graph, using default value 20');
+        limit = 20;
+      }
+
+      // Use git log with graph, oneline, decorate, and color options
+      const graphCommand = `git log --oneline --graph --decorate --color=always --all -n ${limit}`;
+      const graphOutput = this.shell.run(graphCommand).trim();
+
+      if (!graphOutput) {
+        this.logger.debug('No branch graph output generated');
+        return '';
+      }
+
+      this.logger.debug(`Generated branch graph with ${limit} commits`);
+      return graphOutput;
+    } catch (error) {
+      this.logger.error('Error getting branch graph:', error);
+      return '';
+    }
   }
 }
