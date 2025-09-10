@@ -211,7 +211,13 @@ export class GithubPlatformService extends GitPlatformService {
    * For GitHub Enterprise, use hostname/api/v3
    */
   private getApiBaseUrl(): string {
-    if (this.baseUrl.includes('github.com')) {
+    let hostname: string;
+    try {
+      hostname = new URL(this.baseUrl).hostname;
+    } catch {
+      hostname = '';
+    }
+    if (hostname === 'github.com') {
       return 'https://api.github.com';
     } else {
       // GitHub Enterprise
