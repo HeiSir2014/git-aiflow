@@ -32,7 +32,7 @@ export class Shell {
    */
   run(command: string): string {
     const startTime = Date.now();
-    
+    this.logger.debug(`Executing command: ----\n${command}\n----`);
     try {
       // For multiline commands, use a different approach with base64 encoding
       if (command.includes('\n') || command.includes('@\'') || command.includes('\'@')) {

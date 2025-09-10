@@ -32,6 +32,7 @@ export interface MergeRequestOptions {
   reviewer_ids?: number[];
   squash?: boolean;
   removeSourceBranch?: boolean;
+  description?: string;
 }
 
 /**

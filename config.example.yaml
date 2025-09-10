@@ -49,6 +49,10 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: true
+  
+  # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
+  # 支持的语言代码: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
+  generation_lang: en
 
 # 合并请求指派配置 - 配置指派人和审查者
 merge_request:
