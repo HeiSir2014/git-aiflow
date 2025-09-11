@@ -331,8 +331,8 @@ export abstract class BaseAiflowApp {
 
       // Step 3: Commit changes
       // Dynamic countdown display
-      logger.info(`📝 Committing changes, starting in 5 seconds...`);
-      await ColorUtil.countdown(5, 'Committing in', 'Committing now...');
+      logger.info(`📝 Committing changes, starting in 3 seconds...`);
+      await ColorUtil.countdown(3, 'Committing in', 'Committing now...');
       this.git.commit(commit);
 
       logger.info(`✅ Successfully committed changes!`);
@@ -533,7 +533,7 @@ ${'-'.repeat(50)}
       // Step 5: Commit and push
       logger.info(`📤 Creating branch and pushing changes...`);
       // Dynamic countdown before committing
-      await ColorUtil.countdown(5, `Creating branch(${branchName}) and pushing`, 'Committing now...');
+      await ColorUtil.countdown(3, `Creating branch(${branchName}) and pushing`, 'Committing now...');
       this.git.commitAndPush(branchName, commit);
 
       // Step 6: Create Merge Request
