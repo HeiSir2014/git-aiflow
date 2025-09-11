@@ -496,6 +496,8 @@ ${'-'.repeat(50)}
       }
 
       // Step 2: Determine target branch
+      const currentBranch = this.git.getCurrentBranch();
+      console.log(`🌿 Current branch: ${currentBranch}`);
       const targetBranch = this.git.getTargetBranch();
       console.log(`🎯 Target branch: ${targetBranch}`);
 
@@ -554,6 +556,11 @@ ${'-'.repeat(50)}
         mergeRequestOptions
       );
       console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
+
+
+      if(currentBranch && currentBranch !== branchName) {
+        this.git.checkout(currentBranch);
+      }
 
       // Step 7: Send notification
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
