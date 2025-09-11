@@ -12,27 +12,27 @@ function testJsonParsing(): void {
     {
       name: "Clean JSON",
       input: '{"commit":"feat: add new feature","branch":"feat/new-feature"}',
-      expected: { commit: "feat: add new feature", branch: "feat/new-feature" }
+      expected: {commit: "feat: add new feature", branch: "feat/new-feature"}
     },
     {
       name: "JSON with markdown blocks",
       input: '```json\n{"commit":"fix: resolve bug","branch":"fix/resolve-bug"}\n```',
-      expected: { commit: "fix: resolve bug", branch: "fix/resolve-bug" }
+      expected: {commit: "fix: resolve bug", branch: "fix/resolve-bug"}
     },
     {
       name: "JSON with generic markdown blocks",
       input: '```\n{"commit":"docs: update readme","branch":"docs/update-readme"}\n```',
-      expected: { commit: "docs: update readme", branch: "docs/update-readme" }
+      expected: {commit: "docs: update readme", branch: "docs/update-readme"}
     },
     {
       name: "JSON with extra whitespace",
       input: '  \n```json\n  {"commit":"chore: cleanup code","branch":"chore/cleanup-code"}  \n```  \n',
-      expected: { commit: "chore: cleanup code", branch: "chore/cleanup-code" }
+      expected: {commit: "chore: cleanup code", branch: "chore/cleanup-code"}
     }
   ];
 
   // Simulate the parsing logic from OpenAI service
-  function parseAIResponse(rawContent: string): { commit: string; branch: string } {
+  function parseAIResponse(rawContent: string): {commit: string; branch: string} {
     console.debug("Raw AI response:", rawContent);
     
     // Clean up the response - remove markdown code blocks if present
@@ -47,7 +47,7 @@ function testJsonParsing(): void {
     
     try {
       const content = JSON.parse(cleanContent);
-      return { commit: content.commit, branch: content.branch };
+      return {commit: content.commit, branch: content.branch};
     } catch (error) {
       console.error("Failed to parse AI response:", cleanContent);
       throw new Error(`Invalid JSON response from AI: ${error}`);

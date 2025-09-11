@@ -21,7 +21,7 @@
 - 🤖 **AI-Powered Generation**: Automatically generate commit messages and branch names using OpenAI API
 - 🔄 **Automated Workflow**: One-click process from code changes to merge request creation
 - 📦 **Conan Package Management**: Specialized support for Conan package version updates
-- 🌐 **GitLab Integration**: Automatic project detection and merge request creation
+- 🌐 **Multi-Platform Git Integration**: Support for GitHub, GitLab, Gitee and other Git hosting platforms
 - 📱 **WeCom Notifications**: Send notifications via WeCom Webhook
 - 🎯 **Smart Branch Detection**: Automatically identify target branches (main/master/develop)
 - 🔧 **Flexible Configuration**: Support multiple configuration options and environment variables
@@ -52,7 +52,7 @@ Specialized automation tool for Conan package version updates.
 - **Node.js**: >= 16.0.0
 - **npm**: >= 7.0.0
 - **Git**: Configured with access to remote repositories
-- **GitLab**: Personal Access Token with API permissions
+- **Git Hosting Platforms**: Personal Access Tokens for GitHub, GitLab, Gitee, etc.
 - **OpenAI**: Valid API Key
 
 ## 🔧 Installation & Setup
@@ -113,13 +113,19 @@ openai:
   # OpenAI model name (required) - specify AI model like gpt-3.5-turbo, gpt-4
   model: gpt-4o-mini
 
-# GitLab Configuration - for repository operations and merge request management
-gitlab:
-  # GitLab personal access token (required) - for API operations, requires api and write_repository permissions
-  token: glpat-your-gitlab-token
+# Git Access Tokens Configuration - support for multiple Git hosting platforms
+git_access_tokens:
+  # GitHub access token - format: ghp_xxxxxxxxxxxxxxxxxxxx
+  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
-  # GitLab base URL (optional) - custom GitLab instance address, auto-detected from git remote if empty
-  # baseUrl: https://gitlab.example.com
+  # GitLab access token - format: glpat-xxxxxxxxxxxxxxxxxxxx  
+  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
+  
+  # Gitee access token - format: gitee_xxxxxxxxxxxxxxxxxxxx
+  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
+  
+  # You can add more Git hosting platform tokens
+  # format: hostname: access_token
 
 # Conan Package Manager Configuration - for C++ package management and version updates
 conan:
@@ -164,7 +170,7 @@ git add .
 npm run aiflow
 
 # Or with CLI arguments to override config
-aiflow -ok sk-abc123 -gt glpat-xyz789
+aiflow -ok sk-abc123 -gat github.com=ghp-xyz789
 
 # View configuration help
 aiflow --config-help
@@ -201,7 +207,7 @@ aiflow-conan zterm
 aiflow-conan winusb repo
 
 # With CLI arguments to override config
-aiflow-conan -ok sk-abc123 -gt glpat-xyz789 zterm
+aiflow-conan -ok sk-abc123 -gat gitlab.example.com=glpat-xyz789 zterm
 
 # View configuration help
 aiflow-conan --config-help
@@ -251,8 +257,7 @@ aiflow init --global
 | `-ok` | `--openai-key` | OpenAI API key | Required |
 | `-obu` | `--openai-base-url` | OpenAI API base URL | Required |
 | `-om` | `--openai-model` | OpenAI model name | Required |
-| `-gt` | `--gitlab-token` | GitLab access token | Required |
-| `-gbu` | `--gitlab-base-url` | GitLab base URL | Optional |
+| `-gat` | `--git-access-token` | Git access token (format: hostname=token) | Required |
 | `-crbu` | `--conan-remote-base-url` | Conan repository API URL | Required for Conan |
 | `-crr` | `--conan-remote-repo` | Conan repository name | Optional |
 | `-ww` | `--wecom-webhook` | WeCom webhook URL | Optional |
@@ -267,8 +272,7 @@ aiflow init --global
 | `OPENAI_KEY` | OpenAI API key | - |
 | `OPENAI_BASE_URL` | OpenAI API base URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | OpenAI model name | `gpt-3.5-turbo` |
-| `GITLAB_TOKEN` | GitLab Personal Access Token | - |
-| `GITLAB_BASE_URL` | GitLab base URL | Auto-detected |
+| `GIT_ACCESS_TOKEN_<HOST>` | Git access token (e.g., GIT_ACCESS_TOKEN_GITHUB_COM) | - |
 | `CONAN_REMOTE_BASE_URL` | Conan remote server URL | - |
 | `CONAN_REMOTE_REPO` | Conan remote repository name | `repo` |
 | `WECOM_WEBHOOK` | WeCom Webhook URL | - |
@@ -276,13 +280,21 @@ aiflow init --global
 | `SQUASH_COMMITS` | Whether to squash commits | `true` |
 | `REMOVE_SOURCE_BRANCH` | Delete source branch after merge | `true` |
 
-### GitLab Token Permissions
+### Git Platform Token Permissions
 
-When creating a GitLab Personal Access Token, the following scopes are required:
+**GitLab Personal Access Token Scopes:**
 - ✅ `api` - Full API access
 - ✅ `read_user` - Read user information
 - ✅ `read_repository` - Read repository information
 - ✅ `write_repository` - Write repository information
+
+**GitHub Personal Access Token Scopes:**
+- ✅ `repo` - Full repository access
+- ✅ `workflow` - Workflow access (if needed)
+
+**Gitee Personal Access Token Scopes:**
+- ✅ `projects` - Project permissions
+- ✅ `pull_requests` - Pull request permissions
 
 ## 🔄 Workflow
 
@@ -290,10 +302,11 @@ When creating a GitLab Personal Access Token, the following scopes are required:
 
 The tool automatically detects the following information:
 
-1. **GitLab Project Information**
-   - Parse project ID from `git remote` URL
+1. **Git Platform Project Information**
+   - Parse project information from `git remote` URL
    - Support both HTTP and SSH URL formats
-   - Auto-extract GitLab server address
+   - Auto-detect GitHub, GitLab, Gitee and other platforms
+   - Smart API endpoint detection (supports enterprise self-hosted instances)
 
 2. **Target Branch Detection**
    - Priority: `main` > `master` > `develop`
@@ -347,10 +360,13 @@ git branch -r
 git remote -v
 ```
 
-**4. "GitLab API error"**
+**4. "Git API error"**
 ```bash
-# Solution: Verify GitLab Token permissions
+# Solution: Verify access token permissions
+# GitLab:
 curl -H "PRIVATE-TOKEN: your-token" https://gitlab.com/api/v4/user
+# GitHub:
+curl -H "Authorization: Bearer your-token" https://api.github.com/user
 ```
 
 **5. Conan package update failure**
@@ -362,16 +378,90 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
+**6. Windows PowerShell Execution Policy Error**
+
+**Problem Description**:
+When running the `aiflow` command on Windows systems, you may encounter the following error:
+
+```powershell
+aiflow : File C:\Users\user\AppData\Roaming\npm\aiflow.ps1 cannot be loaded because running scripts 
+is disabled on this system. For more information, see about_Execution_Policies at 
+https://go.microsoft.com/fwlink/?LinkID=135170.
+At line:1 char:1
++ aiflow
++ ~~~~~~
+   + CategoryInfo          : SecurityError: (:) [], PSSecurityException
+   + FullyQualifiedErrorId : UnauthorizedAccess
+```
+
+**Root Cause**:
+Windows PowerShell's default execution policy restricts script execution as a security mechanism to prevent malicious scripts from running.
+
+**Solutions**:
+
+Method 1: **Modify Current User Execution Policy (Recommended)**
+```powershell
+# Run PowerShell as Administrator, then execute:
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+Method 2: **Temporarily Bypass Execution Policy**
+```powershell
+# Temporarily bypass for each run (not recommended)
+PowerShell -ExecutionPolicy Bypass -Command "aiflow"
+```
+
+Method 3: **Use npx to Run Directly**
+```bash
+# If the above methods don't work, use npx
+npx aiflow
+```
+
+**Verify Fix**:
+```powershell
+# Check current execution policy
+Get-ExecutionPolicy -List
+
+# You should see CurrentUser policy as RemoteSigned
+```
+
+**Security Notes**:
+- `RemoteSigned` policy requires scripts downloaded from the internet to be signed by a trusted publisher
+- Locally created scripts can run without signatures
+- This is a relatively secure setting, safer than the fully open `Unrestricted` policy
+
+### Logging System
+
+AIFlow uses an enterprise-grade logging system based on Winston:
+
+**Log Locations:**
+- **Windows**: `%APPDATA%\aiflow\logs\`
+- **macOS**: `~/Library/Application Support/aiflow/logs/`
+- **Linux**: `~/.config/aiflow/logs/`
+
+**Log Files:**
+- `aiflow.log` - All log levels
+- `error.log` - Error level only
+
+**Log Features:**
+- 📁 Automatic file size rotation (10MB/file, keep 5 files)
+- 🕐 Timestamps, context tags and detailed metadata
+- 📊 Structured JSON format for analysis
+- 🏷️ Service-level context tags (Shell, GitService, HttpClient, etc.)
+
 ### Debug Mode
 
-Enable verbose logging output:
+View real-time logs:
 
 ```bash
-# Set debug environment variable
-export DEBUG=aiflow:*
+# View all logs
+tail -f ~/.config/aiflow/logs/aiflow.log
 
-# Run the tool
-npm run aiflow
+# View error logs only
+tail -f ~/.config/aiflow/logs/error.log
+
+# Windows users
+Get-Content -Path "$env:APPDATA\aiflow\logs\aiflow.log" -Wait
 ```
 
 ### Log Analysis
@@ -404,7 +494,9 @@ The tool outputs detailed execution steps:
 src/
 ├── services/              # Core services
 │   ├── git-service.ts        # Git operations
-│   ├── gitlab-service.ts     # GitLab API
+│   ├── git-platform-service.ts # Git platform abstract interface
+│   ├── gitlab-platform-service.ts # GitLab platform implementation
+│   ├── github-platform-service.ts # GitHub platform implementation
 │   ├── openai-service.ts     # OpenAI API
 │   ├── conan-service.ts      # Conan API
 │   ├── wecom-notifier.ts     # WeCom notifications
@@ -417,6 +509,7 @@ src/
 │   └── http-client.ts
 ├── test/                  # Test files
 ├── config.ts              # Configuration management
+├── logger.ts              # Logging system
 ├── aiflow-app.ts          # General MR tool
 ├── aiflow-conan-app.ts    # Conan update tool
 ├── shell.ts               # Shell command execution

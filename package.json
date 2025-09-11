@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.2",
+  "version": "1.0.18",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
@@ -9,27 +9,48 @@
     "git-aiflow": "dist/aiflow-app.js",
     "git-aiflow-conan": "dist/aiflow-conan-app.js"
   },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "README-EN.md",
+    "LICENSE",
+    "config.example.yaml"
+  ],
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "node --loader ts-node/esm src/index.ts",
-    "dev": "node --watch --loader ts-node/esm src/index.ts",
-    "debug-brk": "node --inspect-brk --loader ts-node/esm src/index.ts",
-    "debug": "node --inspect --loader ts-node/esm src/index.ts",
-    "test:config": "node --loader ts-node/esm src/test/config.test.ts",
-    "test:gitlab": "node --loader ts-node/esm src/test/gitlab-service.test.ts",
-    "test:conan": "node --loader ts-node/esm src/test/conan-service.test.ts",
-    "test:conan-update": "node --loader ts-node/esm src/test/conan-pkg-update.test.ts",
-    "test:file-update": "node --loader ts-node/esm src/test/file-update.test.ts",
-    "test:openai-parse": "node --loader ts-node/esm src/test/openai-json-parse.test.ts",
-    "test:conan-revision": "node --loader ts-node/esm src/test/conan-revision.test.ts",
-    "test:conan-v2": "node --loader ts-node/esm src/test/conan-v2-api.test.ts",
-    "test:shell-multiline": "node --loader ts-node/esm src/test/shell-multiline.test.ts",
-    "test:gitlab-auto": "node --loader ts-node/esm src/test/gitlab-auto-detect.test.ts",
-    "aiflow": "node --loader ts-node/esm src/aiflow-app.ts",
-    "aiflow-conan": "node --loader ts-node/esm src/aiflow-conan-app.ts",
-    "git-info": "node --loader ts-node/esm src/git-info.ts",
-    "clean": "rm -rf dist"
+    "node-ts": "node --loader ts-node/esm",
+    "build": "tsc && npm run postbuild",
+    "postbuild": "node -e \"require('fs').chmodSync('dist/aiflow-app.js', '755'); require('fs').chmodSync('dist/aiflow-conan-app.js', '755');\"",
+    "start": "npm run aiflow",
+    "dev": "npm run aiflow:dev",
+    "start-conan": "npm run aiflow-conan",
+    "dev-conan": "npm run aiflow-conan:dev",
+    "debug-brk": "npm run node-ts -- --inspect-brk src/index.ts",
+    "debug": "npm run node-ts -- --inspect src/index.ts",
+    "test:config": "npm run node-ts -- src/test/config.test.ts",
+    "test:conan": "npm run node-ts -- src/test/conan-service.test.ts",
+    "test:conan-update": "npm run node-ts -- src/test/conan-pkg-update.test.ts",
+    "test:openai-parse": "npm run node-ts -- src/test/openai-json-parse.test.ts",
+    "test:shell-multiline": "npm run node-ts -- src/test/shell-multiline.test.ts",
+    "test:git-new-methods": "npm run node-ts -- src/test/git-service-new-methods.test.ts",
+    "test:git-base-branch": "npm run node-ts -- src/test/git-service-base-branch.test.ts",
+    "test:git-base-branch-debug": "npm run node-ts -- --inspect-brk src/test/git-service-base-branch.test.ts",
+    "test:git-branch-ops": "npm run node-ts -- src/test/git-service-branch-operations.test.ts",
+    "test:git-branch-graph": "npm run node-ts -- src/test/git-service-branch-graph.test.ts",
+    "test:git-all": "npm run node-ts -- src/test/run-git-tests.ts",
+    "test:update-checker": "npm run node-ts -- src/test/update-checker.test.ts",
+    "aiflow": "npm run node-ts -- src/aiflow-app.ts",
+    "aiflow:debug": "npm run node-ts -- --inspect=9229 src/aiflow-app.ts",
+    "aiflow:debug-brk": "npm run node-ts -- --inspect-brk=9229 src/aiflow-app.ts",
+    "aiflow:dev": "npm run node-ts -- --watch src/aiflow-app.ts",
+    "aiflow-conan": "npm run node-ts -- src/aiflow-conan-app.ts",
+    "aiflow-conan:debug": "npm run node-ts -- --inspect=9230 src/aiflow-conan-app.ts",
+    "aiflow-conan:debug-brk": "npm run node-ts -- --inspect-brk=9230 src/aiflow-conan-app.ts",
+    "aiflow-conan:dev": "npm run node-ts -- --watch src/aiflow-conan-app.ts",
+    "git-info": "npm run node-ts -- src/git-info.ts",
+    "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
     "ai",
@@ -46,18 +67,24 @@
   "author": "heisir",
   "license": "MIT",
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/lodash": "^4.17.20",
     "@types/node": "^24.3.1",
+    "@types/update-notifier": "^6.0.8",
     "cross-env": "^10.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.2",
-    "@types/js-yaml": "^4.0.9"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
+    "clipboardy": "^4.0.0",
     "dotenv": "^17.2.2",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "lodash": "^4.17.21",
+    "update-notifier": "^7.3.1",
+    "winston": "^3.17.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",

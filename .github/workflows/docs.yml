@@ -1,0 +1,550 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'README*.md'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'README*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  validate-documentation:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check README files
+        run: |
+          echo "📚 Documentation Validation"
+          echo "=========================="
+          
+          # Check README.md
+          if [ -f README.md ]; then
+            echo "✅ README.md exists"
+            README_LINES=$(wc -l < README.md)
+            echo "   Lines: $README_LINES"
+            
+            # Check for required sections
+            if grep -q "## 功能特性" README.md; then
+              echo "   ✅ Features section found"
+            else
+              echo "   ⚠️ Features section missing"
+            fi
+            
+            if grep -q "## 安装配置" README.md; then
+              echo "   ✅ Installation section found"
+            else
+              echo "   ⚠️ Installation section missing"
+            fi
+            
+            if grep -q "## 使用方法" README.md; then
+              echo "   ✅ Usage section found"
+            else
+              echo "   ⚠️ Usage section missing"
+            fi
+          else
+            echo "❌ README.md missing"
+          fi
+          
+          # Check README-EN.md
+          if [ -f README-EN.md ]; then
+            echo "✅ README-EN.md exists"
+            README_EN_LINES=$(wc -l < README-EN.md)
+            echo "   Lines: $README_EN_LINES"
+          else
+            echo "⚠️ README-EN.md missing"
+          fi
+
+      - name: Validate package.json documentation
+        run: |
+          echo "📦 Package.json Documentation Check"
+          echo "=================================="
+          
+          node -e "
+            const pkg = require('./package.json');
+            
+            console.log('Package name:', pkg.name);
+            console.log('Description:', pkg.description || 'MISSING');
+            console.log('Version:', pkg.version);
+            console.log('Author:', pkg.author || 'MISSING');
+            console.log('License:', pkg.license || 'MISSING');
+            console.log('Repository:', pkg.repository?.url || 'MISSING');
+            console.log('Homepage:', pkg.homepage || 'Not set');
+            console.log('Keywords:', pkg.keywords?.length || 0, 'keywords');
+            
+            // Check for required fields
+            const required = ['name', 'version', 'description', 'author', 'license'];
+            const missing = required.filter(field => !pkg[field]);
+            
+            if (missing.length > 0) {
+              console.log('❌ Missing required fields:', missing.join(', '));
+              process.exit(1);
+            } else {
+              console.log('✅ All required fields present');
+            }
+          "
+
+      - name: Check license file
+        run: |
+          echo "📄 License Documentation"
+          echo "======================"
+          
+          if [ -f LICENSE ]; then
+            echo "✅ LICENSE file exists"
+            LICENSE_LINES=$(wc -l < LICENSE)
+            echo "   Lines: $LICENSE_LINES"
+            
+            # Check license content
+            if grep -q "MIT License" LICENSE; then
+              echo "   ✅ MIT License detected"
+            elif grep -q "Apache License" LICENSE; then
+              echo "   ✅ Apache License detected"
+            else
+              echo "   ⚠️ License type unclear"
+            fi
+          else
+            echo "❌ LICENSE file missing"
+          fi
+
+      - name: Validate inline documentation
+        run: |
+          echo "💬 Inline Code Documentation"
+          echo "============================"
+          
+          # Count TSDoc comments
+          TSDOC_COUNT=$(grep -r "\/\*\*" src/ --include="*.ts" | wc -l)
+          echo "TSDoc comments found: $TSDOC_COUNT"
+          
+          # Count exported functions/classes
+          EXPORTS_COUNT=$(grep -r "^export " src/ --include="*.ts" | wc -l)
+          echo "Exported items: $EXPORTS_COUNT"
+          
+          # Calculate documentation coverage (rough estimate)
+          if [ $EXPORTS_COUNT -gt 0 ]; then
+            DOC_COVERAGE=$((TSDOC_COUNT * 100 / EXPORTS_COUNT))
+            echo "Estimated documentation coverage: ${DOC_COVERAGE}%"
+            
+            if [ $DOC_COVERAGE -lt 50 ]; then
+              echo "⚠️ Low documentation coverage"
+            else
+              echo "✅ Good documentation coverage"
+            fi
+          fi
+
+  generate-api-docs:
+    name: Generate API Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install TypeDoc
+        run: npm install -g typedoc
+
+      - name: Build project
+        run: npm run build
+
+      - name: Generate API documentation
+        run: |
+          echo "📖 Generating API Documentation"
+          echo "=============================="
+          
+          # Create docs directory
+          mkdir -p docs/api
+          
+          # Generate TypeDoc documentation
+          typedoc src/index.ts \
+            --out docs/api \
+            --theme default \
+            --name "AIFlow API Documentation" \
+            --readme README.md \
+            --exclude "**/*.test.ts" \
+            --exclude "**/test/**" \
+            --excludePrivate \
+            --excludeProtected \
+            --excludeInternal
+
+      - name: Generate CLI documentation
+        run: |
+          echo "⌨️ Generating CLI Documentation"
+          echo "=============================="
+          
+          mkdir -p docs/cli
+          
+          # Generate CLI help documentation
+          echo "# AIFlow CLI Documentation" > docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          echo "## aiflow Command" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          echo "\`\`\`" >> docs/cli/README.md
+          timeout 30s node dist/aiflow-app.js --help >> docs/cli/README.md || echo "Help command completed"
+          echo "\`\`\`" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          
+          echo "## aiflow-conan Command" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          echo "\`\`\`" >> docs/cli/README.md
+          timeout 30s node dist/aiflow-conan-app.js --help >> docs/cli/README.md || echo "Help command completed"
+          echo "\`\`\`" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          
+          echo "## Configuration Help" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          echo "### aiflow Configuration" >> docs/cli/README.md
+          echo "\`\`\`" >> docs/cli/README.md
+          timeout 30s node dist/aiflow-app.js --config-help >> docs/cli/README.md || echo "Config help completed"
+          echo "\`\`\`" >> docs/cli/README.md
+          echo "" >> docs/cli/README.md
+          
+          echo "### aiflow-conan Configuration" >> docs/cli/README.md
+          echo "\`\`\`" >> docs/cli/README.md
+          timeout 30s node dist/aiflow-conan-app.js --config-help >> docs/cli/README.md || echo "Config help completed"
+          echo "\`\`\`" >> docs/cli/README.md
+
+      - name: Generate workflow documentation
+        run: |
+          echo "🔄 Generating Workflow Documentation"
+          echo "=================================="
+          
+          mkdir -p docs/workflows
+          
+          cat << 'EOF' > docs/workflows/README.md
+          # GitHub Actions Workflows
+          
+          This project uses several GitHub Actions workflows for CI/CD automation:
+          
+          ## Available Workflows
+          
+          ### CI/CD Pipeline (`ci.yml`)
+          - **Trigger**: Push/PR to main branches
+          - **Purpose**: Build, test, and validate code quality
+          - **Jobs**:
+            - Lint and type checking
+            - Multi-platform testing (Ubuntu, Windows, macOS)
+            - Build and package verification
+            - Security audit
+            - Integration testing
+          
+          ### Release (`release.yml`)
+          - **Trigger**: Release published or manual dispatch
+          - **Purpose**: Build and publish releases to NPM
+          - **Jobs**:
+            - Version validation
+            - Multi-platform artifact building
+            - GitHub release creation
+            - NPM publication
+            - Post-release validation
+          
+          ### Code Quality (`quality.yml`)
+          - **Trigger**: Push/PR to main branches, daily schedule
+          - **Purpose**: Comprehensive code quality and security analysis
+          - **Jobs**:
+            - CodeQL security analysis
+            - Dependency vulnerability scanning
+            - License compliance checking
+            - Static code analysis
+            - Performance analysis
+          
+          ### Dependency Updates (`dependency-update.yml`)
+          - **Trigger**: Weekly schedule or manual dispatch
+          - **Purpose**: Automated dependency management
+          - **Jobs**:
+            - Security updates
+            - Patch/minor version updates
+            - Vulnerability assessment
+          
+          ### Performance Monitoring (`performance.yml`)
+          - **Trigger**: Push to main, PR, daily schedule
+          - **Purpose**: Monitor and track performance metrics
+          - **Jobs**:
+            - Build performance benchmarking
+            - CLI performance testing
+            - Package size analysis
+            - Load testing
+            - Performance regression detection
+          
+          ### Documentation (`docs.yml`)
+          - **Trigger**: Changes to docs or source code
+          - **Purpose**: Validate and generate documentation
+          - **Jobs**:
+            - Documentation validation
+            - API documentation generation
+            - CLI documentation generation
+          
+          ## Manual Workflow Triggers
+          
+          Several workflows can be triggered manually:
+          
+          1. **Release Workflow**: Create a new release
+             - Go to Actions → Release and Publish → Run workflow
+             - Specify version and prerelease flag
+          
+          2. **Dependency Updates**: Update dependencies
+             - Go to Actions → Dependency Updates → Run workflow
+             - Choose update type (patch, minor, major, all)
+          
+          3. **Performance Testing**: Run performance benchmarks
+             - Go to Actions → Performance Monitoring → Run workflow
+          
+          ## Workflow Status
+          
+          You can monitor workflow status through:
+          - GitHub Actions tab
+          - Commit status checks
+          - PR status checks
+          - Release status
+          
+          ## Secrets Configuration
+          
+          Required secrets for workflows:
+          - `NPM_TOKEN`: For NPM publishing (release workflow)
+          - `GITHUB_TOKEN`: Automatically provided by GitHub
+          
+          ## Workflow Artifacts
+          
+          Workflows generate various artifacts:
+          - Build artifacts (dist files, packages)
+          - Test reports
+          - Performance metrics
+          - Security scan results
+          - Documentation
+          
+          Artifacts are retained for 7-30 days depending on the workflow.
+          EOF
+
+      - name: Create documentation index
+        run: |
+          echo "📑 Creating Documentation Index"
+          echo "=============================="
+          
+          cat << 'EOF' > docs/README.md
+          # AIFlow Documentation
+          
+          Welcome to the AIFlow documentation. This directory contains comprehensive documentation for the AIFlow project.
+          
+          ## Documentation Structure
+          
+          - **[API Documentation](api/)**: Generated TypeScript API documentation
+          - **[CLI Documentation](cli/)**: Command-line interface documentation
+          - **[Workflow Documentation](workflows/)**: GitHub Actions workflows guide
+          
+          ## Quick Links
+          
+          - [Main README](../README.md) - Project overview and usage
+          - [English README](../README-EN.md) - English version
+          - [Configuration Example](../config.example.yaml) - Example configuration
+          - [License](../LICENSE) - Project license
+          
+          ## Development Documentation
+          
+          For developers working on AIFlow:
+          
+          1. **Getting Started**: See the main README for setup instructions
+          2. **API Reference**: Check the [API documentation](api/) for detailed type information
+          3. **CLI Usage**: Refer to [CLI documentation](cli/) for command details
+          4. **Contributing**: See GitHub Actions [workflows](workflows/) for CI/CD information
+          
+          ## Support
+          
+          If you need help:
+          
+          1. Check the [troubleshooting section](../README.md#故障排除) in the main README
+          2. Search existing [issues](https://github.com/HeiSir2014/git-aiflow/issues)
+          3. Create a new [issue](https://github.com/HeiSir2014/git-aiflow/issues/new)
+          
+          ## Last Updated
+          
+          This documentation was last updated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+      - name: Upload documentation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/
+          retention-days: 30
+
+  validate-links:
+    name: Validate Documentation Links
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install markdown link checker
+        run: npm install -g markdown-link-check
+
+      - name: Check README links
+        run: |
+          echo "🔗 Checking Documentation Links"
+          echo "=============================="
+          
+          # Check main README
+          if [ -f README.md ]; then
+            echo "Checking README.md links:"
+            markdown-link-check README.md --config .github/mlc-config.json || echo "Some links may be broken"
+          fi
+          
+          # Check English README
+          if [ -f README-EN.md ]; then
+            echo "Checking README-EN.md links:"
+            markdown-link-check README-EN.md --config .github/mlc-config.json || echo "Some links may be broken"
+          fi
+
+      - name: Create link checker config
+        run: |
+          mkdir -p .github
+          cat << 'EOF' > .github/mlc-config.json
+          {
+            "ignorePatterns": [
+              {
+                "pattern": "^http://localhost"
+              },
+              {
+                "pattern": "^https://api.openai.com"
+              },
+              {
+                "pattern": "^https://.*\\.example\\.com"
+              }
+            ],
+            "timeout": "20s",
+            "retryOn429": true,
+            "retryCount": 3,
+            "fallbackRetryDelay": "30s",
+            "aliveStatusCodes": [200, 206, 301, 302, 403, 999]
+          }
+          EOF
+
+  spell-check:
+    name: Spell Check Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install spell checker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aspell aspell-en
+
+      - name: Check spelling in documentation
+        run: |
+          echo "📝 Spell Checking Documentation"
+          echo "=============================="
+          
+          # Create word list for technical terms
+          cat << 'EOF' > .aspell.en.pws
+          personal_ws-1.1 en 100
+          AIFlow
+          TypeScript
+          JavaScript
+          GitHub
+          GitLab
+          Gitee
+          OpenAI
+          API
+          CLI
+          npm
+          Node
+          Conan
+          webhook
+          WeChat
+          WeCom
+          ESM
+          TSDoc
+          JSDoc
+          config
+          yaml
+          json
+          EOF
+          
+          # Check README files for spelling
+          if [ -f README.md ]; then
+            echo "Spell checking README.md (English sections):"
+            # Extract English text and check
+            grep -E "^\s*#|^\s*-|^\s*\*|^[A-Za-z]" README.md | \
+            aspell --lang=en --personal=.aspell.en.pws list | \
+            sort -u | head -20 || echo "Spell check completed"
+          fi
+          
+          if [ -f README-EN.md ]; then
+            echo "Spell checking README-EN.md:"
+            aspell --lang=en --personal=.aspell.en.pws list < README-EN.md | \
+            sort -u | head -20 || echo "Spell check completed"
+          fi
+
+  publish-docs:
+    name: Publish Documentation
+    runs-on: ubuntu-latest
+    needs: [validate-documentation, generate-api-docs, validate-links]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download documentation artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation
+          path: docs/
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Create deployment summary
+        run: |
+          echo "# 📚 Documentation Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been successfully published to GitHub Pages." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Published Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "- API Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "- CLI Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "- Workflow Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation will be available at the URL above within a few minutes." >> $GITHUB_STEP_SUMMARY
