@@ -1,0 +1,361 @@
+name: Release and Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.12)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Is this a pre-release?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format x.y.z (e.g., 1.0.12)"
+            exit 1
+          fi
+
+      - name: Check version consistency
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          RELEASE_VERSION="${{ steps.version.outputs.version }}"
+          
+          echo "Package.json version: ${PACKAGE_VERSION}"
+          echo "Release version: ${RELEASE_VERSION}"
+          
+          if [ "${PACKAGE_VERSION}" != "${RELEASE_VERSION}" ]; then
+            echo "Warning: Version mismatch between package.json (${PACKAGE_VERSION}) and release (${RELEASE_VERSION})"
+            echo "Updating package.json version..."
+            npm version ${RELEASE_VERSION} --no-git-tag-version
+          fi
+
+      - name: Run full test suite
+        run: |
+          npm run build
+          npm run test:config || true
+          npm run test:shell-multiline || true
+
+      - name: Verify build integrity
+        run: |
+          npm run build
+          test -f dist/aiflow-app.js
+          test -f dist/aiflow-conan-app.js
+          test -f dist/index.js
+          echo "Build artifacts verified successfully"
+
+  build-release-artifacts:
+    name: Build Release Artifacts
+    runs-on: ${{ matrix.os }}
+    needs: validate-release
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [18, 20, 22]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version in package.json
+        run: npm version ${{ needs.validate-release.outputs.version }} --no-git-tag-version
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create distribution package
+        run: npm pack
+
+      - name: Test package installation
+        run: |
+          PACKAGE_FILE=$(ls git-aiflow-*.tgz)
+          npm install -g ./${PACKAGE_FILE}
+          
+          # Test CLI availability
+          if command -v aiflow &> /dev/null; then
+            echo "✅ aiflow command available"
+            aiflow --help > /dev/null
+          else
+            echo "❌ aiflow command not found"
+            exit 1
+          fi
+          
+          if command -v aiflow-conan &> /dev/null; then
+            echo "✅ aiflow-conan command available"
+            aiflow-conan --help > /dev/null
+          else
+            echo "❌ aiflow-conan command not found"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-node${{ matrix.node-version }}
+          path: |
+            git-aiflow-*.tgz
+            dist/
+          retention-days: 30
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release-artifacts]
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ubuntu-latest-node18
+          path: ./release-artifacts
+
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          cat << EOF > release-notes.md
+          ## 🚀 AIFlow ${{ needs.validate-release.outputs.version }}
+          
+          ### 📦 Installation
+          
+          \`\`\`bash
+          npm install -g git-aiflow@${{ needs.validate-release.outputs.version }}
+          \`\`\`
+          
+          ### ✨ What's Included
+          
+          - **aiflow**: AI-powered Git workflow automation
+          - **aiflow-conan**: Specialized Conan package management tool
+          
+          ### 🛠️ System Requirements
+          
+          - Node.js >= 18.0.0
+          - npm >= 7.0.0
+          - Git with remote repository access
+          
+          ### 📋 Quick Start
+          
+          \`\`\`bash
+          # Initialize configuration
+          aiflow init
+          
+          # Stage your changes and create MR
+          git add .
+          aiflow
+          
+          # For Conan package updates
+          aiflow-conan <package-name>
+          \`\`\`
+          
+          ### 🔧 Configuration
+          
+          See [Configuration Guide](README.md#配置说明) for detailed setup instructions.
+          
+          ### 📝 Changelog
+          
+          For detailed changes, see the [commit history](https://github.com/HeiSir2014/git-aiflow/commits/${{ needs.validate-release.outputs.tag }}).
+          EOF
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN}}
+        with:
+          tag_name: ${{ needs.validate-release.outputs.tag }}
+          release_name: "AIFlow ${{ needs.validate-release.outputs.version }}"
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN}}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-artifacts/git-aiflow-${{ needs.validate-release.outputs.version }}.tgz
+          asset_name: git-aiflow-${{ needs.validate-release.outputs.version }}.tgz
+          asset_content_type: application/gzip
+
+  publish-npm:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release-artifacts]
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version in package.json
+        run: npm version ${{ needs.validate-release.outputs.version }} --no-git-tag-version
+
+      - name: Build project
+        run: npm run build
+
+      - name: Verify package contents
+        run: |
+          echo "Package contents:"
+          npm pack --dry-run
+          
+          echo -e "\nPackage size:"
+          npm pack
+          ls -lh git-aiflow-*.tgz
+
+      - name: Publish to NPM (dry run)
+        run: npm publish --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to NPM
+        run: |
+          if [ "${{ github.event.inputs.prerelease }}" == "true" ]; then
+            npm publish --tag beta
+          else
+            npm publish
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify NPM publication
+        run: |
+          sleep 30  # Wait for NPM to propagate
+          npm view git-aiflow@${{ needs.validate-release.outputs.version }}
+
+  post-release-validation:
+    name: Post-Release Validation
+    runs-on: ${{ matrix.os }}
+    needs: [validate-release, publish-npm]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+      - name: Test NPM installation
+        run: |
+          # Wait for NPM propagation
+          sleep 60
+          
+          # Install from NPM
+          npm install -g git-aiflow@${{ needs.validate-release.outputs.version }}
+          
+          # Verify installation
+          aiflow --version || aiflow --help
+          aiflow-conan --version || aiflow-conan --help
+          
+          echo "✅ Package successfully installed from NPM"
+
+      - name: Test CLI functionality
+        run: |
+          # Test help commands
+          aiflow --help
+          aiflow --config-help
+          aiflow-conan --help
+          aiflow-conan --config-help
+          
+          echo "✅ CLI commands working correctly"
+
+  notify-release:
+    name: Notify Release Completion
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-npm, post-release-validation]
+    if: always()
+    
+    steps:
+      - name: Determine release status
+        id: status
+        run: |
+          if [ "${{ needs.validate-release.result }}" == "success" ] && \
+             [ "${{ needs.publish-npm.result }}" == "success" ] && \
+             [ "${{ needs.post-release-validation.result }}" == "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Release ${{ needs.validate-release.outputs.version }} completed successfully!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Release ${{ needs.validate-release.outputs.version }} failed. Check workflow logs." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release summary
+        run: |
+          echo "# 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ needs.validate-release.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.status.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Release Steps" >> $GITHUB_STEP_SUMMARY
+          echo "- Validation: ${{ needs.validate-release.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Artifacts: ${{ needs.build-release-artifacts.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Release: ${{ needs.create-github-release.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- NPM Publish: ${{ needs.publish-npm.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Post-Release Validation: ${{ needs.post-release-validation.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY

@@ -1,99 +1,30 @@
-#!/usr/bin/env node --input-type=module
+#!/usr/bin/env node
 
-import { config } from 'dotenv';
-import { Shell } from './shell.js';
-import { HttpClient } from './http/http-client.js';
+import { BaseAiflowApp } from './aiflow-app.js';
+import { MergeRequestOptions } from './services/git-platform-service.js';
 import { StringUtil } from './utils/string-util.js';
-import { GitService } from './services/git-service.js';
-import { OpenAiService } from './services/openai-service.js';
-import { GitlabService } from './services/gitlab-service.js';
-import { WecomNotifier } from './services/wecom-notifier.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
-import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
-import { fileURLToPath } from 'url';
+import { UpdateChecker } from './utils/update-checker.js';
+import { parseCliArgs, getConfigValue, getCliHelp, initConfig } from './config.js';
 import path from 'path';
-import fs from 'fs';
-
-// ESM/CommonJS compatibility helper
-function getDirname(): string {
-  // ESM environment
-  if (typeof import.meta !== 'undefined' && import.meta.url) {
-    return path.dirname(fileURLToPath(import.meta.url));
-  }
-  // CommonJS environment
-  if (typeof __dirname !== 'undefined') {
-    return __dirname;
-  }
-  // Fallback
-  return process.cwd();
-}
-
-// Load environment variables with ESM/CommonJS compatibility
-const currentDir = getDirname();
-let envPath = path.join(currentDir, '.env');
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(currentDir, '../.env');
-}
-if (!fs.existsSync(envPath)) {
-  envPath = path.join(process.cwd(), '.env');
-}
-if (fs.existsSync(envPath)) {
-  config({ path: envPath });
-} else {
-  // Fallback to default dotenv behavior
-  config();
-}
+import { fileURLToPath } from 'url';
+import clipboardy from 'clipboardy';
 /**
  * Conan package update application with automated MR creation
  */
-export class ConanPkgUpdateApp {
-  private readonly shell = new Shell();
-  private readonly http = new HttpClient();
-
-  public config!: LoadedConfig;
-  private openai!: OpenAiService;
-  private gitlab!: GitlabService;
-  private wecom!: WecomNotifier;
+export class ConanPkgUpdateApp extends BaseAiflowApp {
   private conan!: ConanService;
   private fileUpdater!: FileUpdaterService;
 
-  private readonly git = new GitService(this.shell);
-
   /**
-   * Initialize services with configuration
+   * Initialize services with configuration (override to add Conan-specific services)
    */
-  private async initializeServices(cliConfig: any = {}): Promise<void> {
-    // Load configuration with CLI overrides
-    this.config = await configLoader.loadConfig(cliConfig);
+  protected async initializeServices(cliConfig: any = {}): Promise<void> {
+    // Call parent initialization
+    await super.initializeServices(cliConfig);
 
-    // Display configuration warnings if any
-    const warnings = configLoader.getWarnings();
-    if (warnings.length > 0) {
-      console.log('\n⚠️  配置警告:');
-      warnings.forEach(warning => console.log(`  ${warning}`));
-      console.log('');
-    }
-
-    // Initialize services with configuration values
-    this.openai = new OpenAiService(
-      getConfigValue(this.config, 'openai.key', '') || '',
-      getConfigValue(this.config, 'openai.baseUrl', 'https://api.openai.com/v1') || 'https://api.openai.com/v1',
-      getConfigValue(this.config, 'openai.model', 'gpt-3.5-turbo') || 'gpt-3.5-turbo',
-      this.http
-    );
-
-    this.gitlab = new GitlabService(
-      getConfigValue(this.config, 'gitlab.token', '') || '',
-      getConfigValue(this.config, 'gitlab.baseUrl', '') || '',
-      this.git,
-      this.http
-    );
-
-    this.wecom = new WecomNotifier(
-      getConfigValue(this.config, 'wecom.webhook', '') || ''
-    );
-
+    // Initialize Conan-specific services
     this.conan = new ConanService(
       getConfigValue(this.config, 'conan.remoteBaseUrl', '') || '',
       this.http
@@ -102,41 +33,6 @@ export class ConanPkgUpdateApp {
     this.fileUpdater = new FileUpdaterService(this.conan, this.git);
   }
 
-  /**
-   * Get target branch for merge request (default branch or fallback)
-   * @returns Target branch name
-   */
-  private getTargetBranch(): string {
-    try {
-      // Try to get the default branch from git remote
-      const currentBranch = this.git.getCurrentBranch();
-
-      // Common default branch names to try
-      const defaultBranches = ['main', 'master', 'develop'];
-
-      // If current branch is one of the default branches, use it
-      if (defaultBranches.includes(currentBranch)) {
-        return currentBranch;
-      }
-
-      // Otherwise, try to find the default branch by checking which exists
-      for (const branch of defaultBranches) {
-        try {
-          // Check if remote branch exists
-          this.shell.run(`git rev-parse --verify origin/${branch}`);
-          return branch;
-        } catch {
-          // Branch doesn't exist, try next
-        }
-      }
-
-      // Fallback to master if nothing else works
-      return 'master';
-    } catch (error) {
-      console.warn(`⚠️  Could not determine target branch, using 'master': ${error}`);
-      return 'master';
-    }
-  }
 
   /**
    * Update package and create MR
@@ -168,18 +64,21 @@ export class ConanPkgUpdateApp {
         return;
       }
 
+      const changedFiles = this.git.getChangedFiles();
+
       // Step 3: Determine target branch
-      const targetBranch = this.getTargetBranch();
+      const targetBranch = this.git.getTargetBranch();
       console.log(`🎯 Target branch: ${targetBranch}`);
 
       // Step 4: Generate commit message and branch name using AI
       console.log(`🤖 Generating commit message and branch name...`);
-      const { commit, branch } = await this.openai.generateCommitAndBranch(diff);
+      const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+      console.log("✅ Generated MR description:", description);
 
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
       const aiBranch = StringUtil.sanitizeBranch(branch);
-      const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
       const branchName = `${gitUser}/conan-update-${packageName}-${aiBranch}-${dateSuffix}`;
 
       console.log("✅ Generated branch name:", branchName);
@@ -199,19 +98,42 @@ export class ConanPkgUpdateApp {
       console.log(`📋 Creating Merge Request...`);
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
+      
+      // Get merge request configuration
+      const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
+      const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
+      const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+
+      const mergeRequestOptions: MergeRequestOptions = {
+        squash: squashCommits,
+        removeSourceBranch: removeSourceBranch,
+        description: description
+      };
+
+      // Add assignee configuration if specified
+      if (typeof assigneeId === 'number' && assigneeId > 0) {
+        mergeRequestOptions.assignee_id = assigneeId;
+      }
+      
+      if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+        mergeRequestOptions.assignee_ids = assigneeIds;
+      }
+      
+      if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
+        mergeRequestOptions.reviewer_ids = reviewerIds;
+      }
 
       const mrTitle = `chore: update ${packageName} package to latest version`;
-      const mrUrl = await this.gitlab.createMergeRequest(
+      const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         mrTitle,
-        squashCommits,
-        removeSourceBranch
+        mergeRequestOptions
       );
+      console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
       // Step 9: Send notification
       console.log(`📢 Sending notification...`);
-      const changedFiles = this.git.getChangedFiles(5);
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
         await this.wecom.sendMergeRequestNotice(
           branchName,
@@ -224,29 +146,25 @@ export class ConanPkgUpdateApp {
       }
 
       // Format MR information for sharing
-      const mrInfo = `🎉 Conan - ${packageName} 包更新合并请求创建成功！
-
-📦 包名: ${packageName}
-📋 MR 链接: ${mrUrl}
-
+      const isGitHub = this.gitPlatform.getPlatformName() === 'github';
+      const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
+      const requestAbbr = isGitHub ? 'PR' : 'MR';
+      
+      const outputMrInfo = `🎉 Conan - ${packageName} 包更新${requestType}创建成功！
+📋 ${requestAbbr} 链接: ${mrUrl}
+🌿 分支信息: ${branchName} ->  ${targetBranch}
 📝 提交信息:
 ${enhancedCommit}
-
-🌿 分支信息:
-• 源分支: ${branchName}
-• 目标分支: ${targetBranch}
-
-📁 变更文件 (${changedFiles.length} 个):
-${changedFiles.map(file => `• ${file}`).join('\n')}
-
-⚙️ MR 配置:
-• 压缩提交: ${squashCommits ? '✅ 是' : '❌ 否'}
-• 删除源分支: ${removeSourceBranch ? '✅ 是' : '❌ 否'}
-
-📢 通知状态: ${getConfigValue(this.config, 'wecom.enable', false) ? '✅ 已发送企业微信通知' : '⏭️  未启用通知'}
+📁 变更文件 (${changedFiles.length} 个)${changedFiles.length > 10 ? `前10个: ` : ': '}
+${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles.length > 10 ? `\n...${changedFiles.length - 10}个文件` : ''}`;
+      const consoleMrInfo = `
+${'-'.repeat(50)}
+${outputMrInfo}
+${'-'.repeat(50)}
 `;
+      console.log(consoleMrInfo);
+      await clipboardy.write(outputMrInfo);
 
-      console.log(mrInfo);
       console.log(`✅ Conan package update workflow completed successfully!`);
 
     } catch (error) {
@@ -256,32 +174,19 @@ ${changedFiles.map(file => `• ${file}`).join('\n')}
   }
 
   /**
-   * Validate configuration
+   * Validate configuration (override to add Conan-specific validation)
    */
-  validateConfiguration(): void {
-    const requiredConfigs = [
-      { key: 'openai.key', name: 'OpenAI API Key' },
-      { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
-      { key: 'openai.model', name: 'OpenAI Model' },
-      { key: 'gitlab.token', name: 'GitLab Token' }
-    ];
+  protected validateConfiguration(): void {
+    // Call parent validation
+    super.validateConfiguration();
 
-    const missing: string[] = [];
-
-    for (const config of requiredConfigs) {
-      const value = getConfigValue(this.config, config.key, '');
-      if (!value) {
-        missing.push(config.name);
-      }
+    // Additional Conan-specific validation
+    const conanBaseUrl = getConfigValue(this.config, 'conan.remoteBaseUrl', '');
+    if (!conanBaseUrl) {
+      console.warn(`⚠️  Conan remote base URL not configured. Some features may not work.`);
     }
 
-    if (missing.length > 0) {
-      console.error(`❌ Missing required configuration: ${missing.join(', ')}`);
-      console.error(`💡 Please run 'aiflow-conan init' to configure or check your config files`);
-      process.exit(1);
-    }
-
-    console.log(`✅ Configuration validation passed`);
+    console.log(`✅ Conan configuration validation passed`);
   }
 
   /**
@@ -310,8 +215,7 @@ Configuration Options (可以通过 CLI 参数覆盖配置文件):
   -ok, --openai-key <key>               OpenAI API 密钥
   -obu, --openai-base-url <url>         OpenAI API 地址
   -om, --openai-model <model>           OpenAI 模型
-  -gt, --gitlab-token <token>           GitLab 访问令牌
-  -gbu, --gitlab-base-url <url>         GitLab 地址
+  -gat, --git-access-token <host=token> Git 访问令牌 (格式: 主机名=令牌)
   -crbu, --conan-remote-base-url <url>  Conan 仓库 API 地址
   -crr, --conan-remote-repo <repo>      Conan 仓库名称
   -ww, --wecom-webhook <url>            企业微信 Webhook 地址
@@ -324,7 +228,7 @@ Examples:
   aiflow-conan init --global                     # 交互式初始化全局配置
   aiflow-conan zterm                             # 使用配置文件运行
   aiflow-conan zterm repo                        # 指定远程仓库
-  aiflow-conan -ok sk-123 -gt glpat-456 zterm    # 使用 CLI 参数覆盖配置
+  aiflow-conan -ok sk-123 -gat gitlab.example.com=glpat-456 zterm    # 使用 CLI 参数覆盖配置
 
 配置文件位置 (按优先级排序):
   1. 命令行参数 (最高优先级)
@@ -333,9 +237,10 @@ Examples:
   4. 环境变量 (最低优先级)
 
 Auto-Detection Features:
-  ✅ GitLab project ID from git remote URL (HTTP/SSH supported)
-  ✅ GitLab base URL from git remote URL
-  ✅ Target branch detection (main/master/develop)
+  ✅ Git 托管平台项目 ID 从 git remote URL 自动检测 (支持 HTTP/SSH)
+  ✅ Git 托管平台 base URL 从 git remote URL 自动检测
+  ✅ 目标分支自动检测 (main/master/develop)
+  ✅ Git 访问令牌基于当前仓库主机名自动选择
 
 Files Required:
   conandata.yml     Conan data file in current directory
@@ -348,6 +253,15 @@ Files Required:
    */
   static async main(): Promise<void> {
     const args = process.argv.slice(2);
+
+    // Check for updates at startup (for global installations only)
+    try {
+      const updateChecker = new UpdateChecker();
+      await updateChecker.checkAndUpdate();
+    } catch (error) {
+      // Don't let update check failures block the main application
+      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
+    }
 
     // Handle init command
     if (args.includes('init')) {
@@ -405,7 +319,10 @@ Files Required:
   }
 }
 
-ConanPkgUpdateApp.main().catch((error) => {
-  console.error('❌ Unhandled error:', error);
-  process.exit(1);
-});
+const isMain = path.basename(fileURLToPath(import.meta.url)).toLowerCase() === path.basename(process.argv[1]).toLowerCase();
+if (isMain) {
+  ConanPkgUpdateApp.main().catch((error) => {
+    console.error('❌ Unhandled error:', error);
+    process.exit(1);
+  });
+}

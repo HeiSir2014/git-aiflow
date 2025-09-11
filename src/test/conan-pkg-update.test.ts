@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { config } from 'dotenv';
+import { loadEnvironmentVariables } from '../config.js';
 import { ConanPkgUpdateApp } from '../aiflow-conan-app.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Load environment variables
-config();
+loadEnvironmentVariables();
 
 /**
  * Test the Conan package update functionality
@@ -17,7 +17,7 @@ async function testConanPkgUpdate(): Promise<void> {
 
   // Create test directory and files
   const testDir = path.join(process.cwd(), 'test-conan-update');
-  
+
   try {
     // Create test directory
     if (!fs.existsSync(testDir)) {
@@ -30,9 +30,9 @@ async function testConanPkgUpdate(): Promise<void> {
 
     // Test the update workflow (dry run mode)
     console.log(`\n🚀 Starting update test...`);
-    
+
     const app = new ConanPkgUpdateApp();
-    
+
     await app.updatePackage('zterm', process.env.CONAN_REMOTE_REPO ?? 'repo');
 
     // Restore original directory

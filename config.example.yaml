@@ -12,13 +12,19 @@ openai:
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: gpt-3.5-turbo
 
-# GitLab 配置 - 用于仓库操作和合并请求管理
-gitlab:
-  # GitLab 个人访问令牌 (必需) - 用于API操作，需要api和write_repository权限
-  token: your-gitlab-token
+# Git 访问令牌配置 - 支持多个Git托管平台
+git_access_tokens:
+  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
+  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
-  # GitLab 基础URL (可选) - 自定义GitLab实例地址，留空时自动从git remote检测
-  baseUrl: https://gitlab.example.com
+  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
+  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
+  
+  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
+  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
+  
+  # 您可以添加更多Git托管平台的令牌
+  # 格式: 主机名: 访问令牌
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
@@ -43,3 +49,18 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: true
+  
+  # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
+  # 支持的语言代码: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
+  generation_lang: en
+
+# 合并请求指派配置 - 配置指派人和审查者
+merge_request:
+  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
+  assignee_id: 0
+  
+  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
+  assignee_ids: []
+  
+  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
+  reviewer_ids: []

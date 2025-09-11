@@ -1,4 +1,14 @@
 import { HttpClient } from '../http/http-client.js';
+import { createLogger } from '../logger.js';
+
+/**
+ * Result of AI-generated commit information
+ */
+export interface CommitGenerationResult {
+  commit: string;
+  branch: string;
+  description: string;
+}
 
 /**
  * OpenAI API service for generating commit message and branch name
@@ -8,18 +18,27 @@ export class OpenAiService {
   private readonly apiUrl: string;
   private readonly model: string;
   private readonly http: HttpClient;
+  private readonly logger = createLogger('OpenAiService');
 
   constructor(apiKey: string, apiUrl: string, model: string, http?: HttpClient) {
     this.apiKey = apiKey;
     this.apiUrl = apiUrl;
     this.model = model;
     this.http = http || new HttpClient();
+    // trim /v1 or /
+    if (apiUrl.endsWith('/')) {
+      this.apiUrl = apiUrl.slice(0, -1);
+    }
+    if (apiUrl.endsWith('/chat/completions')) { // trim /v1
+      this.apiUrl = apiUrl.slice(0, -10);
+    }
+    this.logger.info(`Initialized OpenAI service`, { apiUrl: this.apiUrl, model: this.model });
   }
 
   /**
-   * Generate commit message and branch name in English
+   * Generate commit message, branch name and MR description
    */
-  async generateCommitAndBranch(diff: string): Promise<{ commit: string; branch: string }> {
+  async generateCommitAndBranch(diff: string, language: string = 'en'): Promise<CommitGenerationResult> {
     type OpenAiResp = { choices: { message: { content: string } }[] };
 
     const body = JSON.stringify({
@@ -27,37 +46,54 @@ export class OpenAiService {
       messages: [
         {
           role: "system",
-          content: `You are an expert Git commit analyzer. Analyze the git diff and generate appropriate commit message and branch name.
+          content: `You are an expert Git commit analyzer. Analyze the git diff and generate appropriate commit message, branch name, and merge request description.
+
+LANGUAGE: Generate all content in ${this.getLanguageName(language)} (${language}). For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
 
 STRICT RULES:
 1. Commit message: Follow conventional commits format (type(scope): description)
    - Types: feat, fix, docs, style, refactor, test, chore
    - Keep under 72 characters
    - Use imperative mood (e.g., "add", "fix", "update")
+   - Write in specified language ${this.getLanguageName(language)} (${language})
    
-2. Branch name: MUST follow exact pattern "type/short-description"
+2. Branch name: MUST follow exact pattern "type/short-description" (ALWAYS in English)
    - REQUIRED format: {type}/{kebab-case-description}
    - Type MUST be one of: feat, fix, docs, style, refactor, test, chore
    - Description: 2-4 words maximum, separated by hyphens
    - Examples: feat/user-auth, fix/login-bug, docs/api-guide, refactor/code-cleanup
    - NO exceptions to this format
-   - Branch name MUST start with one of the allowed types followed by slash.
+   - Branch name MUST always be in English regardless of language setting
    
-3. Analyze the diff to understand:
+3. MR Description: Generate detailed merge request description in specified language ${this.getLanguageName(language)} (${language})
+   - Include "## What Changed" section describing modifications
+   - Include "## Why" section explaining the reason for changes
+   - Include "## How to Test" section with testing instructions
+   - Use appropriate formatting with markdown
+   - Be comprehensive but concise
+   - Write in specified language ${this.getLanguageName(language)} (${language})
+
+4. MR Title: Generate concise merge request title in specified language ${this.getLanguageName(language)} (${language})
+   - Include "chore" prefix for maintenance changes
+   - Use concise and descriptive title
+   - Write in specified language ${this.getLanguageName(language)} (${language})
+   
+5. Analyze the diff to understand:
    - What files are changed
    - What functionality is added/modified/removed
    - The scope/impact of changes
+   - Testing considerations
 
-CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/description>"}, don't add any other text / comments or markdown and just return the JSON object`,
+CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/description>", "description":"<detailed-mr-description>", "title":"<mr-title>"}, don't add any other text / comments or markdown wrapper and just return the JSON object`,
         },
         {
           role: "user",
-          content: `Analyze this git diff and generate commit message and branch name:\n\n${diff}`,
+          content: `Analyze this git diff and generate commit message, branch name, MR description and MR title:\n\n${diff}`,
         },
       ],
       temperature: 0.1, // Low temperature for consistent, accurate commit messages
     });
-
+    this.logger.debug(`OpenAI request body: ${body}`);
     const resp = await this.http.requestJson<OpenAiResp>(
       `${this.apiUrl}/chat/completions`,
       "POST",
@@ -68,7 +104,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
       body
     );
     const rawContent = resp.choices[0].message.content;
-    console.debug("Raw AI response:", rawContent);
+    this.logger.debug(`OpenAI response: ${rawContent}`);
 
     // Clean up the response - remove markdown code blocks if present
     let cleanContent = rawContent.trim();
@@ -82,10 +118,41 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
 
     try {
       const content = JSON.parse(cleanContent);
-      return { commit: content.commit, branch: content.branch };
+      return { 
+        commit: content.commit, 
+        branch: content.branch, 
+        description: content.description || '' 
+      } as CommitGenerationResult;
     } catch (error) {
-      console.error("Failed to parse AI response:", cleanContent);
+      this.logger.error("Failed to parse AI response:", cleanContent);
       throw new Error(`Invalid JSON response from AI: ${error}`);
     }
+  }
+
+  /**
+   * Get language display name for prompt
+   */
+  private getLanguageName(language: string): string {
+    if(!language) {
+      return 'English';
+    }
+    language = language.toLowerCase();
+    const languageMap: Record<string, string> = {
+      'en': 'English',
+      'zh-cn': 'Chinese (Simplified)',
+      'zh-tw': 'Chinese (Traditional)',
+      'zhcn': 'Chinese (Simplified)',
+      'zhtw': 'Chinese (Traditional)',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'fr': 'French',
+      'de': 'German',
+      'es': 'Spanish',
+      'ru': 'Russian',
+      'pt': 'Portuguese',
+      'it': 'Italian'
+    };
+    
+    return languageMap[language] || 'English';
   }
 }
