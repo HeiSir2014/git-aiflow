@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createLogger } from './logger.js';
+import { logger } from './logger.js';
 import { platform } from 'os';
 
 /**
@@ -11,11 +11,10 @@ export class Shell {
   private shellCmd!: string;
   private shellArgs!: string[];
   private readonly isWindows: boolean;
-  private readonly logger = createLogger('Shell');
 
   constructor() {
     this.isWindows = platform() === 'win32';
-    
+
     if (this.isWindows) {
       this.initializeWindowsShell();
     } else {
@@ -26,46 +25,46 @@ export class Shell {
   private initializeWindowsShell(): void {
     // Detect if pwsh exists
     try {
-      const pwshCheck = spawnSync("pwsh", ["-c", "echo ok"], {encoding: "utf-8", cwd: process.cwd()});
+      const pwshCheck = spawnSync("pwsh", ["-c", "echo ok"], { encoding: "utf-8", cwd: process.cwd() });
       if (!pwshCheck.error) {
         this.shellCmd = "pwsh";
         this.shellArgs = ["-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass", "-Command"];
-        this.logger.debug('Using PowerShell Core (pwsh)');
+        logger.debug('Using PowerShell Core (pwsh)');
       } else {
         this.shellCmd = "powershell";
         this.shellArgs = ["-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass", "-Command"];
-        this.logger.debug('Using Windows PowerShell (powershell)');
+        logger.debug('Using Windows PowerShell (powershell)');
       }
     } catch (e) {
       // Fallback to powershell if pwsh check fails
       this.shellCmd = "powershell";
       this.shellArgs = ["-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass", "-Command"];
-      this.logger.warn('Failed to detect pwsh, falling back to powershell', { error: e instanceof Error ? e.message : String(e) });
+      logger.warn('Failed to detect pwsh, falling back to powershell', { error: e instanceof Error ? e.message : String(e) });
     }
   }
 
   private initializeUnixShell(): void {
     // Try to detect the best available shell on Unix systems
     const shells = ['bash', 'zsh', 'sh'];
-    
+
     for (const shell of shells) {
       try {
-        const check = spawnSync(shell, ["-c", "echo ok"], {encoding: "utf-8", cwd: process.cwd()});
+        const check = spawnSync(shell, ["-c", "echo ok"], { encoding: "utf-8", cwd: process.cwd() });
         if (!check.error) {
           this.shellCmd = shell;
           this.shellArgs = ["-c"];
-          this.logger.debug(`Using ${shell} shell`);
+          logger.debug(`Using ${shell} shell`);
           return;
         }
       } catch (e) {
         // Continue to next shell
       }
     }
-    
+
     // Fallback to bash if nothing else works
     this.shellCmd = "bash";
     this.shellArgs = ["-c"];
-    this.logger.warn('Failed to detect preferred shell, falling back to bash');
+    logger.warn('Failed to detect preferred shell, falling back to bash');
   }
 
   /**
@@ -74,7 +73,7 @@ export class Shell {
    */
   run(command: string): string {
     const startTime = Date.now();
-    this.logger.debug(`Executing command: \n----\n${command}\n----`);
+    logger.debug(`Executing command: \n----\n${command}\n----`);
     try {
       if (this.isWindows) {
         return this.runWindowsCommand(command, startTime);
@@ -83,7 +82,7 @@ export class Shell {
       }
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error(`Shell execution failed after ${duration}ms`, error);
+      logger.error(`Shell execution failed after ${duration}ms`, error);
       return "";
     }
   }
@@ -101,35 +100,35 @@ export class Shell {
     // Encode the multiline command to base64 (PowerShell requires UTF-16LE encoding)
     const fullCommand = `[Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; ${command}`;
     const encodedCommand = Buffer.from(fullCommand, 'utf16le').toString('base64');
-    
+
     const pwsh_args = [
-      "-NoProfile", 
-      "-NoLogo", 
-      "-ExecutionPolicy", 
-      "Bypass", 
-      "-EncodedCommand", 
+      "-NoProfile",
+      "-NoLogo",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
       encodedCommand
     ];
-    
-    this.logger.debug(`Executing encoded command: \n----\n${this.shellCmd} [multiline command]\n----`);
-    const result = spawnSync(this.shellCmd, pwsh_args, {encoding: "utf-8", shell: true, cwd: process.cwd()});
-    
+
+    logger.debug(`Executing encoded command: \n----\n${this.shellCmd} [multiline command]\n----`);
+    const result = spawnSync(this.shellCmd, pwsh_args, { encoding: "utf-8", shell: true, cwd: process.cwd() });
+
     const duration = Date.now() - startTime;
-    
+
     if (result.error) {
-      this.logger.error(`Encoded command failed (${duration}ms): ${command.substring(0, 100)}...`, result.error);
+      logger.error(`Encoded command failed (${duration}ms): ${command.substring(0, 100)}...`, result.error);
       return "";
     }
-    
+
     const output = result.stdout.replace(/[\r\n]+/g, "\n").trimEnd();
-    this.logger.debug(`Encoded command output: \n----\n${output}\n----`);
-    this.logger.debug(`Encoded command completed (${duration}ms)`, { 
+    logger.debug(`Encoded command output: \n----\n${output}\n----`);
+    logger.debug(`Encoded command completed (${duration}ms)`, {
       command: command.substring(0, 100) + (command.length > 100 ? '...' : ''),
       output: output,
       outputLength: output.length,
-      exitCode: result.status 
+      exitCode: result.status
     });
-    
+
     return output;
   }
 
@@ -137,52 +136,52 @@ export class Shell {
     // Single line command - use original method
     const pwsh_command = `"[Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; ${command.replace(/"/g, '\\"')}"`;
     const pwsh_args = [...this.shellArgs, pwsh_command];
-    
-    this.logger.debug(`Executing command: \n----\n${command}\n----`);
-    const result = spawnSync(this.shellCmd, pwsh_args, {encoding: "utf-8", shell: true, cwd: process.cwd()});
-    
+
+    logger.debug(`Executing command: \n----\n${command}\n----`);
+    const result = spawnSync(this.shellCmd, pwsh_args, { encoding: "utf-8", shell: true, cwd: process.cwd() });
+
     const duration = Date.now() - startTime;
-    
+
     if (result.error) {
-      this.logger.error(`Command failed (${duration}ms): ${command}`, result.error);
+      logger.error(`Command failed (${duration}ms): ${command}`, result.error);
       return "";
     }
-    
+
     const output = result.stdout.replace(/[\r\n]+/g, "\n").trimEnd();
-    this.logger.debug(`Command output: \n----\n${output}\n----`);
-    this.logger.debug(`Command completed (${duration}ms)`, { 
+    logger.debug(`Command output: \n----\n${output}\n----`);
+    logger.debug(`Command completed (${duration}ms)`, {
       command,
       output,
       outputLength: output.length,
-      exitCode: result.status 
+      exitCode: result.status
     });
-    
+
     return output;
   }
 
   private runUnixCommand(command: string, startTime: number): string {
     // For Unix systems, execute commands directly via shell
     const args = [...this.shellArgs, command];
-    
-    this.logger.debug(`Executing Unix command: \n----\n${this.shellCmd} ${args.join(' ')}\n----`);
-    const result = spawnSync(this.shellCmd, args, {encoding: "utf-8", shell: false, cwd: process.cwd()});
-    
+
+    logger.debug(`Executing Unix command: \n----\n${this.shellCmd} ${args.join(' ')}\n----`);
+    const result = spawnSync(this.shellCmd, args, { encoding: "utf-8", shell: false, cwd: process.cwd() });
+
     const duration = Date.now() - startTime;
-    
+
     if (result.error) {
-      this.logger.error(`Unix command failed (${duration}ms): ${command}`, result.error);
+      logger.error(`Unix command failed (${duration}ms): ${command}`, result.error);
       return "";
     }
 
     const output = result.stdout.replace(/[\r\n]+/g, "\n").trimEnd();
-    this.logger.debug(`Unix command output: \n----\n${output}\n----`);
-    this.logger.debug(`Unix command completed (${duration}ms)`, {
+    logger.debug(`Unix command output: \n----\n${output}\n----`);
+    logger.debug(`Unix command completed (${duration}ms)`, {
       command,
       output,
       outputLength: output.length,
-      exitCode: result.status 
+      exitCode: result.status
     });
-    
+
     return output;
   }
 }

@@ -9,11 +9,12 @@ import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurr
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
 import { UpdateChecker } from './utils/update-checker.js';
+import { ColorUtil } from './utils/color-util.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
 import readline from 'readline';
-
+import { logger } from './logger.js';
 /**
  * Base class for AI-powered Git automation applications
  */
@@ -58,9 +59,9 @@ export abstract class BaseAiflowApp {
     // Display configuration warnings
     const warnings = configLoader.getWarnings();
     if (warnings.length > 0) {
-      console.log('\n⚠️  Configuration warnings:');
-      warnings.forEach(warning => console.log(`  ${warning}`));
-      console.log('');
+      logger.info('\n⚠️  Configuration warnings:');
+      warnings.forEach(warning => logger.info(`  ${warning}`));
+      logger.info('');
     }
   }
 
@@ -71,47 +72,53 @@ export abstract class BaseAiflowApp {
    */
   protected async interactiveFileSelection(): Promise<boolean> {
     const fileStatuses = this.git.status();
-    
+
     if (fileStatuses.length === 0) {
-      console.log("✅ No changes detected in the repository.");
+      console.log(ColorUtil.success("No changes detected in the repository."));
       return false;
     }
 
-    console.log('\n📁 Detected file changes:');
-    console.log('─'.repeat(50));
-    
+    console.log(`\n${ColorUtil.UI_COLORS.emoji('📁')} ${ColorUtil.header('Detected file changes:')}`);
+    console.log(ColorUtil.separator());
+
     // Group files by status for better display
     const untracked = fileStatuses.filter(f => f.isUntracked);
     const modified = fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'M');
     const deleted = fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'D');
     const added = fileStatuses.filter(f => !f.isUntracked && f.indexStatus === 'A');
-    
+
+    let fileIndex = 1;
+
     // Display files by category
     if (modified.length > 0) {
-      console.log('\n📝 Modified files:');
-      modified.forEach((file, index) => {
-        console.log(`  ${index + 1}. ${file.path}`);
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('📝')} ${ColorUtil.LOG_COLORS.warning('Modified files:')}`);
+      modified.forEach((file) => {
+        console.log(`  ${ColorUtil.formatFileStatusWithDescription(file.path, 'M', file.statusDescription, fileIndex - 1)}`);
+        fileIndex++;
       });
     }
-    
+
     if (untracked.length > 0) {
-      console.log('\n❓ Untracked files:');
-      untracked.forEach((file, index) => {
-        console.log(`  ${modified.length + index + 1}. ${file.path}`);
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('❓')} ${ColorUtil.LOG_COLORS.info('Untracked files:')}`);
+      untracked.forEach((file) => {
+        console.log(`  ${ColorUtil.formatFileStatusWithDescription(file.path, '?', file.statusDescription, fileIndex - 1)}`);
+        fileIndex++;
       });
     }
-    
+
     if (added.length > 0) {
-      console.log('\n➕ Added files:');
-      added.forEach((file, index) => {
-        console.log(`  ${modified.length + untracked.length + index + 1}. ${file.path}`);
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('➕')} ${ColorUtil.LOG_COLORS.success('Added files:')}`);
+      added.forEach((file) => {
+        console.log(`  ${ColorUtil.formatFileStatusWithDescription(file.path, 'A', file.statusDescription, fileIndex - 1)}`);
+        fileIndex++;
       });
     }
-    
+
     if (deleted.length > 0) {
-      console.log('\n🗑️  Deleted files:');
-      deleted.forEach((file, index) => {
-        console.log(`  ${modified.length + untracked.length + added.length + index + 1}. ${file.path}`);
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('🗑️')} ${ColorUtil.LOG_COLORS.error('Deleted files:')}`);
+      deleted.forEach((file) => {
+        console.log(`  ${ColorUtil.formatFileStatusWithDescription(file.path, 'D', file.statusDescription, fileIndex - 1)}`);
+        fileIndex++;
       });
     }
 
@@ -136,47 +143,47 @@ export abstract class BaseAiflowApp {
     };
 
     try {
-      console.log('\n🎯 File selection options:');
-      console.log('  • Enter file numbers (e.g., 1,3,5 or 1-5)');
-      console.log('  • Type "all" to stage all files');
-      console.log('  • Type "modified" to stage only modified files');
-      console.log('  • Type "untracked" to stage only untracked files');
-      console.log('  • Press Enter or type "cancel" to cancel');
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('🎯')} ${ColorUtil.header('File selection options:')}`);
+      console.log(`  ${ColorUtil.UI_COLORS.emoji('•')} Enter file numbers (e.g., 1,3,5 or 1-5)`);
+      console.log(`  ${ColorUtil.UI_COLORS.emoji('•')} Type "all" to stage all files`);
+      console.log(`  ${ColorUtil.UI_COLORS.emoji('•')} Type "modified" to stage only modified files`);
+      console.log(`  ${ColorUtil.UI_COLORS.emoji('•')} Type "untracked" to stage only untracked files`);
+      console.log(`  ${ColorUtil.UI_COLORS.emoji('•')} Press Enter or type "cancel" to cancel`);
 
-      const input = await question('\n📋 Select files to stage: ');
-      
+      const input = await question(`\n${ColorUtil.UI_COLORS.emoji('📋')} ${ColorUtil.prompt('Select files to stage: ')}`);
+
       if (!input.trim() || input.toLowerCase() === 'cancel') {
-        console.log('❌ Operation cancelled.');
+        console.log(ColorUtil.error('Operation cancelled.'));
         return false;
       }
 
       const selectedFiles = this.parseFileSelection(input, fileStatuses);
-      
+
       if (selectedFiles.length === 0) {
-        console.log('❌ No valid files selected.');
+        console.log(ColorUtil.error('No valid files selected.'));
         return false;
       }
 
       // Show selected files for confirmation
-      console.log('\n📋 Files to be staged:');
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('📋')} ${ColorUtil.header('Files to be staged:')}`);
       selectedFiles.forEach(file => {
-        console.log(`  ✓ ${file.path} (${file.statusDescription})`);
+        console.log(`  ${ColorUtil.UI_COLORS.emoji('✓')} ${ColorUtil.formatFileStatusWithDescription(file.path, file.workTreeStatus || file.indexStatus || '?', file.statusDescription)}`);
       });
 
-      const confirm = await question('\n❓ Stage these files? (Y/n): ');
-      
+      const confirm = await question(`\n${ColorUtil.UI_COLORS.emoji('❓')} ${ColorUtil.prompt('Stage these files? (Y/n): ')}`);
+
       if (confirm.toLowerCase() === 'n' || confirm.toLowerCase() === 'no') {
-        console.log('❌ Staging cancelled.');
+        console.log(ColorUtil.error('Staging cancelled.'));
         return false;
       }
 
       // Stage selected files
-      console.log('\n📦 Staging selected files...');
+      console.log(`\n${ColorUtil.UI_COLORS.emoji('📦')} ${ColorUtil.LOG_COLORS.info('Staging selected files...')}`);
       for (const file of selectedFiles) {
         this.git.addFile(file.path);
       }
 
-      console.log(`✅ Successfully staged ${selectedFiles.length} file(s).`);
+      console.log(ColorUtil.success(`Successfully staged ${selectedFiles.length} file(s).`));
       return true;
 
     } finally {
@@ -192,16 +199,16 @@ export abstract class BaseAiflowApp {
    */
   private parseFileSelection(input: string, fileStatuses: GitFileStatus[]): GitFileStatus[] {
     const trimmedInput = input.trim().toLowerCase();
-    
+
     // Handle special keywords
     if (trimmedInput === 'all') {
       return fileStatuses;
     }
-    
+
     if (trimmedInput === 'modified') {
       return fileStatuses.filter(f => !f.isUntracked && f.workTreeStatus === 'M');
     }
-    
+
     if (trimmedInput === 'untracked') {
       return fileStatuses.filter(f => f.isUntracked);
     }
@@ -209,7 +216,7 @@ export abstract class BaseAiflowApp {
     // Parse numeric input (e.g., "1,3,5" or "1-5")
     const selectedFiles: GitFileStatus[] = [];
     const parts = input.split(',').map(p => p.trim());
-    
+
     for (const part of parts) {
       if (part.includes('-')) {
         // Handle range (e.g., "1-5")
@@ -229,7 +236,7 @@ export abstract class BaseAiflowApp {
         }
       }
     }
-    
+
     // Remove duplicates
     return [...new Set(selectedFiles)];
   }
@@ -258,80 +265,82 @@ export abstract class BaseAiflowApp {
       getGitAccessTokenForCurrentRepo(this.config, this.git);
     } catch (error) {
       missing.push('Git Access Token for current repository');
-      console.error(`❌ ${error instanceof Error ? error.message : 'Unknown Git token error'}`);
+      logger.error(`❌ ${error instanceof Error ? error.message : 'Unknown Git token error'}`);
     }
 
     if (missing.length > 0) {
-      console.error(`❌ Missing required configuration: ${missing.join(', ')}`);
-      console.error(`💡 Please run 'aiflow init' to configure or check your config files`);
+      logger.error(`❌ Missing required configuration: ${missing.join(', ')}`);
+      logger.error(`💡 Please run 'aiflow init' to configure or check your config files`);
       process.exit(1);
     }
 
-    console.log(`✅ Configuration validation passed`);
+    logger.info(`✅ Configuration validation passed`);
   }
 
   /**
    * Check if commit-only mode is enabled via CLI arguments
-   * @returns True if --commit-only or -co is present in CLI args
+   * @returns True if --commit-only or -co or -cmo is present in CLI args
    */
   private isCommitOnlyMode(): boolean {
     const args = process.argv.slice(2);
-    return args.includes('--commit-only') || args.includes('-co');
+    return args.includes('--commit-only') || args.includes('-co') || args.includes('-cmo');
   }
 
   /**
    * Commit only workflow - just commit staged changes without creating MR
    */
   async runCommitOnly(): Promise<void> {
-    console.log(`🚀 AIFlow Tool - Commit Only Mode`);
-    console.log(`📁 Working directory: ${process.cwd()}`);
-    console.log(`⏰ Started at: ${new Date().toISOString()}`);
-    console.log('─'.repeat(50));
+    logger.info(`🚀 AIFlow Tool - Commit Only Mode`);
+    logger.info(`📁 Working directory: ${process.cwd()}`);
+    logger.info(`⏰ Started at: ${new Date().toISOString()}`);
+    logger.info('─'.repeat(50));
 
     try {
       // Step 1: Check for staged changes
       let diff = this.git.getDiff();
       let changedFiles = this.git.getChangedFiles();
-      
+
       if (!diff) {
-        console.log("📋 No staged changes found. Let's select files to stage...");
-        
+        console.log(`${ColorUtil.UI_COLORS.emoji('📋')} ${ColorUtil.LOG_COLORS.info("No staged changes found. Let's select files to stage...")}`);
+
         // Interactive file selection
         const filesStaged = await this.interactiveFileSelection();
-        
+
         if (!filesStaged) {
-          console.log("❌ No files were staged. Exiting...");
+          console.log(ColorUtil.error("No files were staged. Exiting..."));
           process.exit(1);
         }
-        
+
         // Re-check for staged changes after interactive selection
         diff = this.git.getDiff();
         changedFiles = this.git.getChangedFiles();
-        
+
         if (!diff) {
-          console.error("❌ Still no staged changes found. Please check your selection.");
+          console.error(ColorUtil.error("❌ Still no staged changes found. Please check your selection."));
           process.exit(1);
         }
-        
-        console.log(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
+
+        logger.info(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
       }
 
       // Step 2: Generate commit message using AI
-      console.log(`🤖 Generating commit message...`);
+      logger.info(`🤖 Generating commit message...`);
       const { commit } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
-      console.log("✅ Generated commit message:", commit);
+      logger.info("✅ Generated commit message:", commit);
 
       // Step 3: Commit changes
-      console.log(`📝 Committing changes...`);
+      // Dynamic countdown display
+      logger.info(`📝 Committing changes, starting in 5 seconds...`);
+      await ColorUtil.countdown(5, 'Committing in', 'Committing now...');
       this.git.commit(commit);
 
-      console.log(`✅ Successfully committed changes!`);
-      console.log(`📝 Commit message: ${commit}`);
-      console.log(`📁 Changed files: ${changedFiles.length}`);
+      logger.info(`✅ Successfully committed changes!`);
+      logger.info(`📝 Commit message: ${commit}`);
+      logger.info(`📁 Changed files: ${changedFiles.length}`);
 
     } catch (error) {
-      console.error(`❌ Error during commit:`, error);
+      logger.error(`❌ Error during commit:`, error);
       process.exit(1);
     }
   }
@@ -340,53 +349,55 @@ export abstract class BaseAiflowApp {
    * Create MR from base branch to current branch when no staged changes
    */
   async runFromBaseBranch(): Promise<void> {
-    console.log(`🔍 No staged changes found. Detecting base branch for MR creation...`);
-    
+    logger.info(`🔍 No staged changes found. Detecting base branch for MR creation...`);
+
     // Step 1: Get current branch
     const currentBranch = this.git.getCurrentBranch();
-    console.log(`🌿 Current branch: ${currentBranch}`);
-    
+    logger.info(`🌿 Current branch: ${currentBranch}`);
+
     // Step 2: Detect base branch
     const baseBranch = this.git.getBaseBranch();
     if (!baseBranch) {
-      console.error("❌ Could not detect base branch. Please specify target branch manually or stage some changes.");
+      logger.error("❌ Could not detect base branch. Please specify target branch manually or stage some changes.");
       process.exit(1);
     }
-    
-    console.log(`🎯 Detected base branch: ${baseBranch}`);
-    
+
+    logger.info(`🎯 Detected base branch: ${baseBranch}`);
+
     // Step 3: Get diff from base branch to current branch
     const baseToCurrentDiff = this.git.getDiffBetweenBranches(baseBranch, currentBranch);
-    
+
     if (!baseToCurrentDiff) {
-      console.log("✅ No differences found between base branch and current branch.");
-      console.log("💡 Current branch is up to date with base branch.");
+      logger.info("✅ No differences found between base branch and current branch.");
+      logger.info("💡 Current branch is up to date with base branch.");
       process.exit(0);
     }
-    
-    console.log(`📊 Found changes between ${baseBranch} and ${currentBranch}`);
-    
+
+    logger.info(`📊 Found changes between ${baseBranch} and ${currentBranch}`);
+
     // Step 4: Get changed files
     const changedFiles = this.git.getChangedFilesBetweenBranches(baseBranch, currentBranch);
-    console.log(`📁 Changed files: ${changedFiles.length}`);
-    
+    logger.info(`📁 Changed files: ${changedFiles.length}`);
+
     // Step 5: Generate commit message and branch name using AI
-    console.log(`🤖 Generating commit message and branch name...`);
+    logger.info(`🤖 Generating commit message and branch name...`);
     const { commit, branch, description } = await this.openai.generateCommitAndBranch(baseToCurrentDiff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
-    console.log("✅ Generated commit message:", commit);
-    console.log("✅ Generated branch suggestion:", branch);
-    console.log("✅ Generated MR description:", description);
+    logger.info("✅ Generated commit message:", commit);
+    logger.info("✅ Generated branch suggestion:", branch);
+    logger.info("✅ Generated MR description:", description);
 
     const branchName = currentBranch;
-    console.log("✅ Generated branch name:", branchName);
+    logger.info("✅ Using branch name:", branchName);
+
+    await ColorUtil.countdown(3, `Pushing branch(${branchName})`, 'Pushing branch now...');
     this.git.push(branchName);
 
     // Step 8: Create Merge Request
-    console.log(`📋 Creating Merge Request...`);
+    logger.info(`📋 Creating Merge Request...`);
     const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
     const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
-    
+
     // Get merge request configuration
     const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
     const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
@@ -402,38 +413,41 @@ export abstract class BaseAiflowApp {
     if (typeof assigneeId === 'number' && assigneeId > 0) {
       mergeRequestOptions.assignee_id = assigneeId;
     }
-    
+
     if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
       mergeRequestOptions.assignee_ids = assigneeIds;
     }
-    
+
     if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
       mergeRequestOptions.reviewer_ids = reviewerIds;
     }
 
+    // Dynamic countdown before creating MR
+    await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
+    
     const mrUrl = await this.gitPlatform.createMergeRequest(
       branchName,
       baseBranch,
       commit,
       mergeRequestOptions
     );
-    console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
+    logger.info(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
     // Step 9: Send notification
     if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
-      console.log(`📢 Sending notification...`);
+      logger.info(`📢 Sending notification...`);
       await this.wecom.sendMergeRequestNotice(branchName, baseBranch, mrUrl, commit, changedFiles);
-      console.log("📢 Notification sent via WeCom webhook.");
+      logger.info("📢 Notification sent via WeCom webhook.");
     }
 
-    console.log(`✅ AIFlow workflow completed successfully!`);
+    logger.info(`✅ AIFlow workflow completed successfully!`);
 
     // Step 10: Print the MR info and copy to clipboard
     const isGitHub = this.gitPlatform.getPlatformName() === 'github';
     const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
     const requestAbbr = isGitHub ? 'PR' : 'MR';
 
-    const outputMrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
+    const outputMrInfo = `🎉 ${requestType}创建成功
 📋 ${requestAbbr} 链接: ${mrUrl}
 📝 提交信息:
 ${commit}
@@ -445,19 +459,19 @@ ${'-'.repeat(50)}
 ${outputMrInfo}
 ${'-'.repeat(50)}
 `;
-    console.log(consoleMrInfo);
+    logger.info(consoleMrInfo);
     await clipboard.write(outputMrInfo);
-    console.log("📋 MR info copied to clipboard.");
+    logger.info("📋 MR info copied to clipboard.");
   }
 
   /**
    * Create automated merge request from staged changes
    */
   async run(): Promise<void> {
-    console.log(`🚀 AIFlow Tool`);
-    console.log(`📁 Working directory: ${process.cwd()}`);
-    console.log(`⏰ Started at: ${new Date().toISOString()}`);
-    console.log('─'.repeat(50));
+    logger.info(`🚀 AIFlow Tool`);
+    logger.info(`📁 Working directory: ${process.cwd()}`);
+    logger.info(`⏰ Started at: ${new Date().toISOString()}`);
+    logger.info('─'.repeat(50));
 
     try {
       // Check if commit-only mode is enabled (from CLI args, not config)
@@ -470,62 +484,63 @@ ${'-'.repeat(50)}
       // Step 1: Check for staged changes
       let diff = this.git.getDiff();
       let changedFiles = this.git.getChangedFiles();
-      
+
       if (!diff) {
-        console.log("📋 No staged changes found. Let's select files to stage...");
-        
+        logger.info("📋 No staged changes found. Let's select files to stage...");
+
         // Interactive file selection
         const filesStaged = await this.interactiveFileSelection();
-        
+
         if (!filesStaged) {
-          console.log("❌ No files were staged. Trying to create MR from base branch...");
+          logger.info("❌ No files were staged. Trying to create MR from base branch...");
           await this.runFromBaseBranch();
           return;
         }
-        
+
         // Re-check for staged changes after interactive selection
         diff = this.git.getDiff();
         changedFiles = this.git.getChangedFiles();
-        
+
         if (!diff) {
-          console.log("❌ Still no staged changes found. Trying to create MR from base branch...");
+          logger.info("❌ Still no staged changes found. Trying to create MR from base branch...");
           await this.runFromBaseBranch();
           return;
         }
-        
-        console.log(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
+
+        logger.info(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
       }
 
       // Step 2: Determine target branch
       const currentBranch = this.git.getCurrentBranch();
-      console.log(`🌿 Current branch: ${currentBranch}`);
+      logger.info(`🌿 Current branch: ${currentBranch}`);
       const targetBranch = this.git.getTargetBranch();
-      console.log(`🎯 Target branch: ${targetBranch}`);
+      logger.info(`🎯 Target branch: ${targetBranch}`);
 
       // Step 3: Generate commit message and branch name using AI
-      console.log(`🤖 Generating commit message and branch name...`);
+      logger.info(`🤖 Generating commit message and branch name...`);
       const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
-      console.log("✅ Generated commit message:", commit);
-      console.log("✅ Generated branch suggestion:", branch);
-      console.log("✅ Generated MR description:", description);
+      logger.info("✅ Generated commit message:", commit);
+      logger.info("✅ Generated branch suggestion:", branch);
+      logger.info("✅ Generated MR description:", description);
 
       // Step 4: Create branch name
       const gitUser = this.git.getUserName();
       const aiBranch = StringUtil.sanitizeBranch(branch);
-      const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
-      const branchName = `${gitUser}/${aiBranch}-${dateSuffix}`;
-      console.log("✅ Generated branch name:", branchName);
+      const branchName = `${gitUser}/${aiBranch}-${this.git.getShortCommit()}`;
+      logger.info("✅ Generated branch name:", branchName);
 
       // Step 5: Commit and push
-      console.log(`📤 Creating branch and pushing changes...`);
+      logger.info(`📤 Creating branch and pushing changes...`);
+      // Dynamic countdown before committing
+      await ColorUtil.countdown(5, `Creating branch(${branchName}) and pushing`, 'Committing now...');
       this.git.commitAndPush(branchName, commit);
 
       // Step 6: Create Merge Request
-      console.log(`📋 Creating Merge Request...`);
+      logger.info(`📋 Creating Merge Request...`);
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
-      
+
       // Get merge request configuration
       const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
       const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
@@ -541,36 +556,40 @@ ${'-'.repeat(50)}
       if (typeof assigneeId === 'number' && assigneeId > 0) {
         mergeRequestOptions.assignee_id = assigneeId;
       }
-      
+
       if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
         mergeRequestOptions.assignee_ids = assigneeIds;
       }
-      
+
       if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
         mergeRequestOptions.reviewer_ids = reviewerIds;
       }
 
+      // Dynamic countdown before creating MR
+      await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
+      
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         commit,
         mergeRequestOptions
       );
-      console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
+      logger.info(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
 
-      if(currentBranch && currentBranch !== branchName) {
+      if (currentBranch && currentBranch !== branchName) {
+        logger.info(`✅ Auto checkout to ${currentBranch}`);
         this.git.checkout(currentBranch);
       }
 
       // Step 7: Send notification
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
-        console.log(`📢 Sending notification...`);
+        logger.info(`📢 Sending notification...`);
         await this.wecom.sendMergeRequestNotice(branchName, targetBranch, mrUrl, commit, changedFiles);
-        console.log("📢 Notification sent via WeCom webhook.");
+        logger.info("📢 Notification sent via WeCom webhook.");
       }
 
-      console.log(`✅ AIFlow workflow completed successfully!`);
+      logger.info(`✅ AIFlow workflow completed successfully!`);
 
       // Step 8: Print the MR info and copy to clipboard
       // Format MR information for sharing
@@ -578,7 +597,7 @@ ${'-'.repeat(50)}
       const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
       const requestAbbr = isGitHub ? 'PR' : 'MR';
 
-      const outputMrInfo = `🎉 ${requestType}创建成功，请及时进行代码审查！
+      const outputMrInfo = `🎉 ${requestType}创建成功
 📋 ${requestAbbr} 链接: ${mrUrl}
 📝 提交信息:
 ${commit}
@@ -590,11 +609,11 @@ ${'-'.repeat(50)}
 ${outputMrInfo}
 ${'-'.repeat(50)}
 `;
-      console.log(consoleMrInfo);
+      logger.info(consoleMrInfo);
       await clipboard.write(outputMrInfo);
-      console.log("📋 MR info copied to clipboard.");
+      logger.info("📋 MR info copied to clipboard.");
     } catch (error) {
-      console.error(`❌ Error during MR creation:`, error);
+      logger.error(`❌ Error during MR creation:`, error);
       process.exit(1);
     }
   }
@@ -611,7 +630,7 @@ export class GitAutoMrApp extends BaseAiflowApp {
    * Display usage information
    */
   static showUsage(): void {
-    console.log(`
+    logger.info(`
 🔧 AIFlow Tool
 
 Usage:
@@ -670,6 +689,7 @@ Examples:
   aiflow                                                 # 使用配置文件运行
   aiflow --commit-only                                   # 仅提交更改，不创建MR
   aiflow -co                                             # 仅提交更改，不创建MR (短参数)
+  aiflow -cmo                                             # 仅提交更改，不创建MR (短参数)
   aiflow -ok sk-123 -gat github.com=ghp_456             # 使用 CLI 参数覆盖配置
   aiflow -gat gitlab.example.com=glpat-456 -we true     # 多平台访问令牌配置
 `);
@@ -687,7 +707,7 @@ Examples:
       await updateChecker.checkAndUpdate();
     } catch (error) {
       // Don't let update check failures block the main application
-      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
+      logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
     }
 
     // Handle init command
@@ -699,7 +719,7 @@ Examples:
 
     // Show CLI help
     if (args.includes('--config-help')) {
-      console.log(getCliHelp());
+      logger.info(getCliHelp());
       process.exit(0);
     }
 
@@ -710,8 +730,8 @@ Examples:
     }
 
     // Check for commit-only mode early (before config validation)
-    const isCommitOnly = args.includes('--commit-only') || args.includes('-co');
-    
+    const isCommitOnly = args.includes('--commit-only') || args.includes('-co') || args.includes('-cmo');
+
     // Parse CLI configuration arguments
     const cliConfig = parseCliArgs(args);
 
@@ -738,12 +758,12 @@ Examples:
       }
 
       if (missing.length > 0) {
-        console.error(`❌ Missing required configuration for commit-only mode: ${missing.join(', ')}`);
-        console.error(`💡 Please run 'aiflow init' to configure or check your config files`);
+        logger.error(`❌ Missing required configuration for commit-only mode: ${missing.join(', ')}`);
+        logger.error(`💡 Please run 'aiflow init' to configure or check your config files`);
         process.exit(1);
       }
 
-      console.log(`✅ Configuration validation passed for commit-only mode`);
+      logger.info(`✅ Configuration validation passed for commit-only mode`);
     } else {
       // Full validation for normal MR creation mode
       app.validateConfiguration();
@@ -759,6 +779,6 @@ const run_file = path.basename(process.argv[1]).toLowerCase();
 const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
 const isMain = run_file && (['aiflow', 'git-aiflow', import_file].includes(run_file));
 isMain && GitAutoMrApp.main().catch((error) => {
-  console.error('❌ Unhandled error:', error);
+  logger.error('❌ Unhandled error:', error);
   process.exit(1);
 });

@@ -1,7 +1,7 @@
 import { GitService } from './git-service.js';
 import { HttpClient } from '../http/http-client.js';
 import { LoadedConfig, getGitAccessToken } from '../config.js';
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 
 /**
  * Git platform merge/pull request response
@@ -43,17 +43,16 @@ export abstract class GitPlatformService {
   protected readonly baseUrl: string;
   protected readonly http: HttpClient;
   protected readonly gitService: GitService;
-  protected readonly logger = createLogger('GitPlatformService');
 
   protected constructor(token: string, baseUrl: string, gitService: GitService, http: HttpClient) {
     this.token = token;
     this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.gitService = gitService;
     this.http = http;
-    
-    this.logger.info(`Initialized ${this.getPlatformName()} service`, { 
+
+    logger.info(`Initialized ${this.getPlatformName()} service`, {
       baseUrl: this.baseUrl,
-      tokenLength: this.token.length 
+      tokenLength: this.token.length
     });
   }
 
@@ -75,7 +74,7 @@ export abstract class GitPlatformService {
    */
   async getProject(): Promise<GitPlatformProject> {
     const remoteUrl = this.gitService.getRemoteUrl();
-    console.log(`🔍 Git remote URL: ${remoteUrl}`);
+    logger.info(`🔍 Git remote URL: ${remoteUrl}`);
 
     // Check for error messages from git commands
     if (remoteUrl.startsWith('Error getting URL') || remoteUrl === 'No remote configured') {
@@ -87,7 +86,7 @@ export abstract class GitPlatformService {
       throw new Error(`Failed to parse project path from git remote URL: ${remoteUrl}`);
     }
 
-    console.log(`📋 Parsed project path: ${projectPath}`);
+    logger.info(`📋 Parsed project path: ${projectPath}`);
     return await this.getProjectByPath(projectPath);
   }
 
@@ -177,18 +176,18 @@ export enum GitPlatform {
 export function getGitAccessTokenForCurrentRepo(config: LoadedConfig, gitService: GitService): string {
   try {
     const hostname = gitService.extractHostnameFromRemoteUrl();
-    
+
     if (!hostname) {
       throw new Error('Could not determine Git hostname');
     }
-    
+
     const token = getGitAccessToken(config, hostname);
-    
+
     if (!token) {
       throw new Error(`No access token configured for ${hostname}`);
     }
-    
-    console.log(`🔑 Using access token for: ${hostname}`);
+
+    logger.info(`🔑 Using access token for: ${hostname}`);
     return token;
   } catch (error) {
     throw new Error(`Failed to get Git access token: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -199,7 +198,7 @@ export function getGitAccessTokenForCurrentRepo(config: LoadedConfig, gitService
  * Factory for creating Git platform services
  */
 export class GitPlatformServiceFactory {
-  private static readonly logger = createLogger('GitPlatformServiceFactory');
+  private static readonly logger = logger;
 
   /**
    * Create a Git platform service with full automatic detection and configuration
@@ -208,16 +207,16 @@ export class GitPlatformServiceFactory {
    */
   static async create(): Promise<GitPlatformService | undefined> {
     GitPlatformServiceFactory.logger.info('Starting Git platform service creation');
-    
+
     try {
       // Create service instances
       const { HttpClient } = await import('../http/http-client.js');
       const { GitService } = await import('./git-service.js');
       const { Shell } = await import('../shell.js');
-      
+
       const httpClient = new HttpClient();
       const gitSvc = new GitService(new Shell());
-      
+
       // Load configuration
       const { configLoader } = await import('../config.js');
       const loadedConfig = await configLoader.loadConfig();
@@ -225,7 +224,7 @@ export class GitPlatformServiceFactory {
       // Get access token for current repository
       GitPlatformServiceFactory.logger.debug('Getting Git access token for current repository');
       const token = getGitAccessTokenForCurrentRepo(loadedConfig, gitSvc);
-      
+
       // Detect hostname from Git remote
       const hostname = gitSvc.extractHostnameFromRemoteUrl();
       if (!hostname) {
@@ -246,19 +245,19 @@ export class GitPlatformServiceFactory {
 
       // Get the correct base URL with protocol detection
       const baseUrl = await gitSvc.extractBaseUrlFromRemoteUrl(`git@${hostname}:dummy/repo.git`);
-      
+
       // Create platform-specific service with dynamic imports
       switch (platform) {
         case GitPlatform.GITLAB: {
           const module = await import('./gitlab-platform-service.js');
           return new module.GitlabPlatformService(token, baseUrl, gitSvc, httpClient);
         }
-          
+
         case GitPlatform.GITHUB: {
           const module = await import('./github-platform-service.js');
           return new module.GithubPlatformService(token, baseUrl, gitSvc, httpClient);
         }
-          
+
         default:
           return undefined;
       }
@@ -286,10 +285,10 @@ export class GitPlatformServiceFactory {
 
     // For unknown hostnames, try to detect by API endpoints
     GitPlatformServiceFactory.logger.info(`Unknown hostname ${hostname}, detecting platform via API endpoints`);
-    
+
     try {
       const baseUrl = await gitService.extractBaseUrlFromRemoteUrl(`git@${hostname}:dummy/repo.git`);
-      
+
       // Try to detect platform by API endpoints
       const platform = await GitPlatformServiceFactory.detectPlatformByApi(baseUrl);
       if (platform) {
@@ -314,17 +313,17 @@ export class GitPlatformServiceFactory {
     try {
       // Test GitLab API endpoint (version endpoint)
       GitPlatformServiceFactory.logger.debug(`Testing GitLab API: ${baseUrl}/api/v4/version`);
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
-      
+
       try {
         const gitlabResponse = await fetch(`${baseUrl}/api/v4/version`, {
           method: 'HEAD',
           signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         if (gitlabResponse.status === 200 || gitlabResponse.status === 401) {
           // 200: public endpoint, 401: requires auth but endpoint exists
           GitPlatformServiceFactory.logger.info(`GitLab API detected (status: ${gitlabResponse.status})`);
@@ -347,17 +346,17 @@ export class GitPlatformServiceFactory {
       }
       const githubApiUrl = hostname === 'github.com' ? 'https://api.github.com' : `${baseUrl}/api/v3`;
       GitPlatformServiceFactory.logger.debug(`Testing GitHub API: ${githubApiUrl}`);
-      
+
       const controller2 = new AbortController();
       const timeoutId2 = setTimeout(() => controller2.abort(), timeout);
-      
+
       try {
         const githubResponse = await fetch(githubApiUrl, {
           method: 'HEAD',
           signal: controller2.signal
         });
         clearTimeout(timeoutId2);
-        
+
         if (githubResponse.status === 200) {
           GitPlatformServiceFactory.logger.info(`GitHub API detected (status: ${githubResponse.status})`);
           return GitPlatform.GITHUB;

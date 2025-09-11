@@ -1,10 +1,9 @@
 /**
  * HTTP client using Node.js native fetch
  */
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 
 export class HttpClient {
-  private static readonly logger = createLogger('HttpClient');
 
   async requestJson<T>(
     url: string,
@@ -13,22 +12,22 @@ export class HttpClient {
     body?: string
   ): Promise<T> {
     const startTime = Date.now();
-    HttpClient.logger.httpRequest(method, url);
-    
-    const resp = await fetch(url, {method, headers, body});
+    logger.httpRequest(method, url);
+
+    const resp = await fetch(url, { method, headers, body });
     const duration = Date.now() - startTime;
-    
+
     if (!resp.ok) {
       const errorText = await resp.text();
-      HttpClient.logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, { 
+      logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, {
         status: resp.status,
-        error: errorText 
+        error: errorText
       });
       throw new Error(`HTTP ${resp.status}: ${errorText}`);
     }
-    
+
     const result = await resp.json() as T;
-    HttpClient.logger.httpRequest(method, url, resp.status, duration);
+    logger.httpRequest(method, url, resp.status, duration);
     return result;
   }
 
@@ -39,22 +38,22 @@ export class HttpClient {
     body?: string
   ): Promise<string> {
     const startTime = Date.now();
-    HttpClient.logger.httpRequest(method, url);
-    
-    const resp = await fetch(url, {method, headers, body});
+    logger.httpRequest(method, url);
+
+    const resp = await fetch(url, { method, headers, body });
     const duration = Date.now() - startTime;
-    
+
     if (!resp.ok) {
       const errorText = await resp.text();
-      HttpClient.logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, { 
+      logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, {
         status: resp.status,
-        error: errorText 
+        error: errorText
       });
       throw new Error(`HTTP ${resp.status}: ${errorText}`);
     }
-    
+
     const result = await resp.text();
-    HttpClient.logger.httpRequest(method, url, resp.status, duration);
+    logger.httpRequest(method, url, resp.status, duration);
     return result;
   }
 
@@ -65,22 +64,22 @@ export class HttpClient {
     body?: string
   ): Promise<Uint8Array> {
     const startTime = Date.now();
-    HttpClient.logger.httpRequest(method, url);
+    logger.httpRequest(method, url);
 
-    const resp = await fetch(url, {method, headers, body});
+    const resp = await fetch(url, { method, headers, body });
     const duration = Date.now() - startTime;
-    
+
     if (!resp.ok) {
       const errorText = await resp.text();
-      HttpClient.logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, { 
+      logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, {
         status: resp.status,
-        error: errorText 
+        error: errorText
       });
       throw new Error(`HTTP ${resp.status}: ${errorText}`);
     }
-    
+
     const result = new Uint8Array(await resp.arrayBuffer());
-    HttpClient.logger.httpRequest(method, url, resp.status, duration);
+    logger.httpRequest(method, url, resp.status, duration);
     return result;
   }
 
@@ -91,21 +90,21 @@ export class HttpClient {
     body?: string
   ): Promise<ReadableStream<any>> {
     const startTime = Date.now();
-    HttpClient.logger.httpRequest(method, url);
-    
-    const resp = await fetch(url, {method, headers, body});
+    logger.httpRequest(method, url);
+
+    const resp = await fetch(url, { method, headers, body });
     const duration = Date.now() - startTime;
-    
+
     if (!resp.ok) {
       const errorText = await resp.text();
-      HttpClient.logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, { 
+      logger.error(`HTTP ${method} ${url} failed (${duration}ms)`, {
         status: resp.status,
-        error: errorText 
+        error: errorText
       });
       throw new Error(`HTTP ${resp.status}: ${errorText}`);
     }
-    
-    HttpClient.logger.httpRequest(method, url, resp.status, duration);
+
+    logger.httpRequest(method, url, resp.status, duration);
     return resp.body as ReadableStream<any>;
   }
 
@@ -114,12 +113,12 @@ export class HttpClient {
     headers: Record<string, string>
   ): Promise<Response> {
     const startTime = Date.now();
-    HttpClient.logger.httpRequest('HEAD', url);
-    
-    const resp = await fetch(url, {method: 'HEAD', headers});
+    logger.httpRequest('HEAD', url);
+
+    const resp = await fetch(url, { method: 'HEAD', headers });
     const duration = Date.now() - startTime;
-    
-    HttpClient.logger.httpRequest('HEAD', url, resp.status, duration);
+
+    logger.httpRequest('HEAD', url, resp.status, duration);
     return resp;
   }
 }

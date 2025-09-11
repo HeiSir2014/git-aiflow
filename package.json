@@ -20,6 +20,7 @@
   "type": "module",
   "scripts": {
     "node-ts": "node --loader ts-node/esm",
+    "node-ts:debug": "node --inspect-brk --loader ts-node/esm",
     "build": "tsc && npm run postbuild",
     "postbuild": "node -e \"require('fs').chmodSync('dist/aiflow-app.js', '755'); require('fs').chmodSync('dist/aiflow-conan-app.js', '755');\"",
     "start": "npm run aiflow",
@@ -76,6 +77,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "chalk": "^5.6.2",
     "clipboardy": "^4.0.0",
     "dotenv": "^17.2.2",
     "js-yaml": "^4.1.0",
