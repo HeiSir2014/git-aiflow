@@ -5,6 +5,7 @@ import { MergeRequestOptions } from './services/git-platform-service.js';
 import { StringUtil } from './utils/string-util.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
+import { UpdateChecker } from './utils/update-checker.js';
 import { parseCliArgs, getConfigValue, getCliHelp, initConfig } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -252,6 +253,15 @@ Files Required:
    */
   static async main(): Promise<void> {
     const args = process.argv.slice(2);
+
+    // Check for updates at startup (for global installations only)
+    try {
+      const updateChecker = new UpdateChecker();
+      await updateChecker.checkAndUpdate();
+    } catch (error) {
+      // Don't let update check failures block the main application
+      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
+    }
 
     // Handle init command
     if (args.includes('init')) {

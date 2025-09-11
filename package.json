@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
   "main": "dist/index.js",
   "bin": {
@@ -39,6 +39,7 @@
     "test:git-branch-ops": "npm run node-ts -- src/test/git-service-branch-operations.test.ts",
     "test:git-branch-graph": "npm run node-ts -- src/test/git-service-branch-graph.test.ts",
     "test:git-all": "npm run node-ts -- src/test/run-git-tests.ts",
+    "test:update-checker": "npm run node-ts -- src/test/update-checker.test.ts",
     "aiflow": "npm run node-ts -- src/aiflow-app.ts",
     "aiflow:debug": "npm run node-ts -- --inspect=9229 src/aiflow-app.ts",
     "aiflow:debug-brk": "npm run node-ts -- --inspect-brk=9229 src/aiflow-app.ts",
@@ -69,6 +70,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.20",
     "@types/node": "^24.3.1",
+    "@types/update-notifier": "^6.0.8",
     "cross-env": "^10.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
@@ -78,6 +80,7 @@
     "dotenv": "^17.2.2",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
+    "update-notifier": "^7.3.1",
     "winston": "^3.17.0"
   },
   "engines": {

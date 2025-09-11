@@ -8,6 +8,7 @@ import { OpenAiService } from './services/openai-service.js';
 import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo, MergeRequestOptions } from './services/git-platform-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
 import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
+import { UpdateChecker } from './utils/update-checker.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
@@ -679,6 +680,15 @@ Examples:
    */
   static async main(): Promise<void> {
     const args = process.argv.slice(2);
+
+    // Check for updates at startup (for global installations only)
+    try {
+      const updateChecker = new UpdateChecker();
+      await updateChecker.checkAndUpdate();
+    } catch (error) {
+      // Don't let update check failures block the main application
+      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
+    }
 
     // Handle init command
     if (args.includes('init')) {
