@@ -136,7 +136,6 @@ export class ColorUtil {
       color = this.FILE_STATUS_COLORS.ignored;
       statusText = 'ignored';
     }
-
     return `${color(status)} ${color(filePath)} ${chalk.gray(`(${statusText})`)}`;
   }
 
@@ -271,7 +270,6 @@ ${this.UI_COLORS.emoji('🌿')} ${this.LOG_COLORS.info('分支信息')}: ${this.
   static async spinner(message: string, duration: number = 3000): Promise<void> {
     const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let i = 0;
-
     const interval = setInterval(() => {
       process.stdout.write(`\r${spinnerChars[i % spinnerChars.length]} ${this.LOG_COLORS.info(message)}`);
       i++;
