@@ -770,15 +770,19 @@ ${escapedMessage}
         if (!candidate) continue;
   
         let cleanBranch = candidate;
-  
-        if (!localBranches.includes(candidate)) {
-          for (const remote of remotes) {
-            const prefix = `${remote}/`;
-            if (candidate.startsWith(prefix)) {
-              cleanBranch = candidate.slice(prefix.length);
-              break;
-            }
+
+        // Check if it's a remote branch and extract the local branch name
+        for (const remote of remotes) {
+          const prefix = `${remote}/`;
+          if (candidate.startsWith(prefix)) {
+            cleanBranch = candidate.slice(prefix.length);
+            break;
           }
+        }
+
+        // Only consider this branch if the clean branch name exists locally
+        if (!localBranches.includes(cleanBranch)) {
+          continue;
         }
   
         this.logger.debug(`Detected base branch: ${cleanBranch}`);
