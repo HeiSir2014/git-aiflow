@@ -26,8 +26,12 @@
 - 📦 **Conan 包管理**：专门支持 Conan 包版本更新
 - 🌐 **多平台 Git 集成**：支持 GitHub、GitLab、Gitee 等多个 Git 托管平台
 - 📱 **企业微信通知**：通过 WeCom Webhook 发送通知
-- 🎯 **智能分支检测**：自动识别目标分支（main/master/develop）
+- 🎯 **智能分支检测**：自动识别目标分支
 - 🔧 **灵活配置**：支持多种配置选项和环境变量
+- 📝 **交互式文件选择**：智能文件暂存，支持批量选择和分类显示
+- 🎯 **仅提交模式**：支持仅提交代码变更而不创建合并请求
+- 👥 **合并请求管理**：支持指派人和审查者自动配置
+- 🌍 **多语言支持**：AI 生成内容支持多种语言（中文、英文、日文等）
 
 ## 🛠️ 工具介绍
 
@@ -153,6 +157,21 @@ git:
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: true
+  
+  # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
+  # 支持的语言代码: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
+  generation_lang: en
+
+# 合并请求指派配置 - 配置指派人和审查者
+merge_request:
+  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
+  assignee_id: 0
+  
+  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
+  assignee_ids: []
+  
+  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
+  reviewer_ids: []
 ```
 
 ## 🚀 使用方法
@@ -166,29 +185,56 @@ git:
 aiflow init                    # 本地配置
 aiflow init --global           # 全局配置
 
-# 2. 暂存你的变更
-git add .
+# 2. 暂存你的变更（或让工具自动选择）
+git add .                      # 手动暂存所有变更
+# 或者直接运行 aiflow，工具会提供交互式文件选择
 
 # 3. 运行自动 MR 工具
-aiflow
+aiflow                         # 完整工作流：暂存 → 提交 → 创建 MR
+aiflow --commit-only           # 仅提交模式：暂存 → 提交（不创建 MR）
+aiflow -co                     # 仅提交模式（短参数）
 
-# 或使用 CLI 参数覆盖配置
+# 4. 使用 CLI 参数覆盖配置
 aiflow -ok sk-abc123 -gat github.com=ghp-xyz789
 
-# 查看配置帮助
-aiflow --config-help
+# 5. 查看帮助信息
+aiflow --config-help           # 查看配置选项帮助
+aiflow --help                  # 查看一般帮助
+```
 
-# 查看一般帮助
-aiflow --help
+**交互式文件选择功能**：
+当没有暂存文件时，工具会自动提供交互式文件选择界面：
+
+```bash
+📁 Detected file changes:
+──────────────────────────────────────────────────
+
+📝 Modified files:
+  1. src/components/UserProfile.tsx
+  2. src/api/userService.ts
+
+❓ Untracked files:
+  3. src/types/user.ts
+  4. README.md
+
+🎯 File selection options:
+  • Enter file numbers (e.g., 1,3,5 or 1-5)
+  • Type "all" to stage all files
+  • Type "modified" to stage only modified files
+  • Type "untracked" to stage only untracked files
+  • Press Enter or type "cancel" to cancel
+
+📋 Select files to stage: 1,3
 ```
 
 **工作流程**：
-1. ✅ 检查暂存的变更
+1. ✅ 检查暂存的变更（如无则提供交互式文件选择）
 2. 🎯 自动检测目标分支
 3. 🤖 AI 生成提交信息和分支名
 4. 📤 创建分支并推送
-5. 📋 创建 GitLab 合并请求
+5. 📋 创建合并请求（支持指派人和审查者）
 6. 📱 发送企业微信通知
+7. 📋 复制 MR 信息到剪贴板
 
 ### AIFlow Conan 工具
 
@@ -267,6 +313,12 @@ aiflow init --global
 | `-we` | `--wecom-enable` | 启用企业微信通知 | 可选 |
 | `-sc` | `--squash-commits` | 压缩提交 | 可选 |
 | `-rsb` | `--remove-source-branch` | 删除源分支 | 可选 |
+| `-ggl` | `--git-generation-lang` | AI 生成语言 | 可选 |
+| `-co`  | `--commit-only` | 仅提交模式 | 可选 |
+| `-cmo` | `--commit-only` | 仅提交模式 | 可选 |
+| `-mrai` | `--merge-request-assignee-id` | 指派人用户ID | 可选 |
+| `-mrais` | `--merge-request-assignee-ids` | 指派人用户ID列表 | 可选 |
+| `-mrris` | `--merge-request-reviewer-ids` | 审查者用户ID列表 | 可选 |
 
 ### 环境变量（兼容性支持）
 
@@ -282,6 +334,10 @@ aiflow init --global
 | `WECOM_ENABLE` | 启用企业微信通知 | `false` |
 | `SQUASH_COMMITS` | 是否压缩提交 | `true` |
 | `REMOVE_SOURCE_BRANCH` | 合并后删除源分支 | `true` |
+| `GIT_GENERATION_LANG` | AI 生成语言 | `en` |
+| `MERGE_REQUEST_ASSIGNEE_ID` | 指派人用户ID | - |
+| `MERGE_REQUEST_ASSIGNEE_IDS` | 指派人用户ID列表 | - |
+| `MERGE_REQUEST_REVIEWER_IDS` | 审查者用户ID列表 | - |
 
 ### Git 平台 Token 权限要求
 
@@ -338,6 +394,101 @@ aiflow init --global
    - 自动清理特殊字符
    - 符合 Git 分支命名规范
 
+## 📚 使用案例
+
+### 案例 1：日常功能开发
+
+```bash
+# 开发新功能
+git add src/components/UserProfile.tsx
+git add src/api/userService.ts
+
+# 使用 AIFlow 自动化处理
+aiflow
+
+# 输出示例：
+# ✅ 生成提交信息: feat(user): add user profile component with API integration
+# ✅ 生成分支名称: feat/user-profile-component  
+# 🎉 合并请求创建: https://gitlab.com/project/-/merge_requests/123
+```
+
+### 案例 2：仅提交模式
+
+```bash
+# 仅提交代码变更，不创建 MR
+aiflow --commit-only
+
+# 输出示例：
+# ✅ 生成提交信息: fix(auth): resolve login validation issue
+# ✅ 成功提交变更
+# 📝 提交信息: fix(auth): resolve login validation issue
+```
+
+### 案例 3：交互式文件选择
+
+```bash
+# 直接运行，让工具自动选择文件
+aiflow
+
+# 工具会显示：
+# 📁 Detected file changes:
+# 📝 Modified files:
+#   1. src/auth.ts
+#   2. src/types.ts
+# ❓ Untracked files:
+#   3. README.md
+# 
+# 📋 Select files to stage: 1,3
+```
+
+### 案例 4：C++ 包更新
+
+```bash
+# 更新 Conan 包
+aiflow-conan zterm
+
+# 自动流程：
+# 📦 检测最新版本: zterm/1.0.0.26
+# 📝 更新配置文件
+# 🤖 生成提交信息: chore: update zterm package to version 1.0.0.26
+# 📋 创建合并请求
+# 📱 发送团队通知
+```
+
+### 案例 5：团队协作配置
+
+```bash
+# 配置合并请求指派和审查者
+aiflow -mrai 123 -mrris 456,789
+
+# 或使用配置文件
+merge_request:
+  assignee_id: 123
+  reviewer_ids: [456, 789]
+```
+
+## 🎯 最佳实践
+
+### 1. 配置管理
+- **本地项目配置**：项目特定设置放在 `.aiflow/config.yaml`
+- **全局配置**：通用设置放在全局配置文件
+- **敏感信息**：使用环境变量存储 API 密钥
+
+### 2. 团队协作
+- **统一配置**：团队使用相同的 OpenAI 模型配置
+- **分支策略**：配置合适的分支保护规则
+- **通知设置**：配置企业微信群组通知
+
+### 3. 安全考虑
+- **访问令牌**：定期轮换 Git 平台访问令牌
+- **权限控制**：使用最小权限原则配置令牌
+- **敏感数据**：不要在配置文件中硬编码密钥
+
+### 4. 工作流优化
+- **提交频率**：建议小批量、频繁提交
+- **分支命名**：让 AI 自动生成语义化分支名
+- **代码审查**：配置自动指派审查者
+
 ## 🔍 故障排除
 
 ### 常见问题
@@ -381,7 +532,26 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
-**6. Windows PowerShell 执行策略错误**
+**6. 交互式文件选择不工作**
+```bash
+# 确保在 Git 仓库中运行
+git status
+
+# 检查是否有文件变更
+git diff --name-only
+```
+
+**7. 合并请求指派失败**
+```bash
+# 检查用户ID是否正确
+# GitLab: 在项目设置中查看用户ID
+# GitHub: 使用用户名而不是ID
+
+# 验证访问令牌权限
+curl -H "PRIVATE-TOKEN: your-token" https://gitlab.com/api/v4/projects/PROJECT_ID/members
+```
+
+**8. Windows PowerShell 执行策略错误**
 
 **问题描述**：
 在 Windows 系统中运行 `aiflow` 命令时可能出现以下错误：

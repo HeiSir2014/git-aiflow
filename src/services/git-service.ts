@@ -1,6 +1,6 @@
 import { Shell } from '../shell.js';
 import { StringUtil } from '../utils/string-util.js';
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 
 /**
  * Git file status interface
@@ -23,14 +23,13 @@ export interface GitFileStatus {
  */
 export class GitService {
   private readonly shell: Shell;
-  private readonly logger = createLogger('GitService');
   private static readonly protocolCache = new Map<string, string>();
   private remote_name?: string;
   private remote_url?: string;
 
   constructor(shell?: Shell) {
     this.shell = shell || new Shell();
-    this.logger.debug('GitService initialized');
+    logger.debug('GitService initialized');
   }
 
   /**
@@ -46,18 +45,18 @@ export class GitService {
    * @param branchName The name of the branch to checkout
    */
   checkout(branchName: string): void {
-    this.logger.info(`Checking out branch: ${branchName}`);
+    logger.info(`Checking out branch: ${branchName}`);
 
     const remoteName = this.getRemoteName();
     const currentHead = this.getCurrentHead();
     const stashResult = this.handleWorkingDirectoryChanges(branchName);
-    
+
     if (!this.fetchAndValidateRemoteBranch(branchName, remoteName, stashResult.pushedStash)) {
       return;
     }
 
     const localExists = this.checkLocalBranchExists(branchName);
-    
+
     if (localExists) {
       this.checkoutExistingBranch(branchName, remoteName, stashResult.pushedStash);
     } else {
@@ -84,7 +83,7 @@ export class GitService {
    * @param branchName The target branch name for stash message
    * @returns Object containing stash status
    */
-  private handleWorkingDirectoryChanges(branchName: string): {pushedStash: boolean} {
+  private handleWorkingDirectoryChanges(branchName: string): { pushedStash: boolean } {
     const isDirty = !this.executeGitCommand('git diff --quiet && git diff --cached --quiet').success;
     let pushedStash = false;
 
@@ -94,15 +93,15 @@ export class GitService {
         `git stash push -u -m "${stashMessage}"`,
         'Saving working directory changes to stash'
       );
-      
+
       if (!stashResult.success) {
-        this.logger.error('Uncommitted changes detected and unable to auto-stash. Operation aborted.');
-        return {pushedStash: false};
+        logger.error('Uncommitted changes detected and unable to auto-stash. Operation aborted.');
+        return { pushedStash: false };
       }
       pushedStash = true;
     }
 
-    return {pushedStash};
+    return { pushedStash };
   }
 
   /**
@@ -120,7 +119,7 @@ export class GitService {
     );
 
     if (!fetchResult.success) {
-      this.logger.error(`Remote branch ${remoteName}/${branchName} does not exist or fetch failed.`);
+      logger.error(`Remote branch ${remoteName}/${branchName} does not exist or fetch failed.`);
       this.rollbackStash(pushedStash);
       return false;
     }
@@ -131,7 +130,7 @@ export class GitService {
     ).output;
 
     if (!remoteProbe) {
-      this.logger.error(`Remote branch not found: ${remoteName}/${branchName}.`);
+      logger.error(`Remote branch not found: ${remoteName}/${branchName}.`);
       this.rollbackStash(pushedStash);
       return false;
     }
@@ -172,7 +171,7 @@ export class GitService {
     );
 
     if (!fastForwardResult.success) {
-      this.logger.warn(
+      logger.warn(
         `Unable to fast-forward to ${remoteName}/${branchName} (local branch may have additional commits). ` +
         `Current commit preserved. To discard local divergence, manually run: git reset --hard ${remoteName}/${branchName}`
       );
@@ -209,7 +208,7 @@ export class GitService {
     );
 
     if (!popResult.success) {
-      this.logger.warn(
+      logger.warn(
         'Conflicts may have occurred during stash pop. Please resolve conflicts manually and commit. ' +
         'Conflicted files have been marked.'
       );
@@ -223,7 +222,7 @@ export class GitService {
    */
   private logCheckoutCompletion(previousHead: string, branchName: string): void {
     const newHead = this.executeGitCommand('git rev-parse --short=12 HEAD').output;
-    this.logger.info(
+    logger.info(
       `Checkout completed: ${previousHead || '(unknown)'} → ${newHead} @ ${branchName}`
     );
   }
@@ -245,19 +244,19 @@ export class GitService {
    * @param description Optional description for logging
    * @returns Object containing success status and output
    */
-  private executeGitCommand(command: string, description?: string): {success: boolean; output: string} {
+  private executeGitCommand(command: string, description?: string): { success: boolean; output: string } {
     try {
       const output = this.shell.run(command);
       if (description) {
-        this.logger.debug(`${description} ✓`);
+        logger.debug(`${description} ✓`);
       }
-      return {success: true, output: (output ?? '').toString().trim()};
+      return { success: true, output: (output ?? '').toString().trim() };
     } catch (error: unknown) {
       if (description) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`${description} ✗: ${errorMessage}`);
+        logger.warn(`${description} ✗: ${errorMessage}`);
       }
-      return {success: false, output: ''};
+      return { success: false, output: '' };
     }
   }
 
@@ -292,15 +291,15 @@ export class GitService {
   getDiffBetweenBranches(baseBranch: string, targetBranch: string): string {
     try {
       if (!baseBranch || !targetBranch) {
-        this.logger.warn('Both baseBranch and targetBranch must be provided');
+        logger.warn('Both baseBranch and targetBranch must be provided');
         return '';
       }
 
       const diffOutput = this.shell.run(`git diff ${baseBranch}...${targetBranch}`).trim();
-      this.logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
+      logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
       return diffOutput;
     } catch (error) {
-      this.logger.error(`Error getting diff between branches ${baseBranch} and ${targetBranch}:`, error);
+      logger.error(`Error getting diff between branches ${baseBranch} and ${targetBranch}:`, error);
       return '';
     }
   }
@@ -314,17 +313,17 @@ export class GitService {
   getChangedFilesBetweenBranches(baseBranch: string, targetBranch: string): string[] {
     try {
       if (!baseBranch || !targetBranch) {
-        this.logger.warn('Both baseBranch and targetBranch must be provided');
+        logger.warn('Both baseBranch and targetBranch must be provided');
         return [];
       }
 
       const filesOutput = this.shell.run(`git diff --name-only ${baseBranch}...${targetBranch}`).trim();
       const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
 
-      this.logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
+      logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
       return files;
     } catch (error) {
-      this.logger.error(`Error getting changed files between branches ${baseBranch} and ${targetBranch}:`, error);
+      logger.error(`Error getting changed files between branches ${baseBranch} and ${targetBranch}:`, error);
       return [];
     }
   }
@@ -334,7 +333,7 @@ export class GitService {
    * @param filePath File path to add
    */
   addFile(filePath: string): void {
-    this.logger.info(`Adding file: ${filePath}`);
+    logger.info(`Adding file: ${filePath}`);
     this.shell.run(`git add -f "${filePath}"`);
   }
 
@@ -351,7 +350,7 @@ export class GitService {
    * @param branchName Branch name to create
    */
   createBranch(branchName: string): void {
-    this.logger.info(`Creating branch: ${branchName}`);
+    logger.info(`Creating branch: ${branchName}`);
     this.shell.run(`git checkout -b "${branchName}"`);
   }
 
@@ -360,8 +359,8 @@ export class GitService {
    * @param message Commit message
    */
   commit(message: string): void {
-    this.logger.info('Committing changes...');
-    this.logger.debug(`Commit message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+    logger.info('Committing changes...');
+    logger.debug(`Commit message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
 
     // Use PowerShell here-string for multiline messages
     if (message.includes('\n')) {
@@ -386,7 +385,7 @@ ${escapedMessage}
    * @param branchName Branch name to push
    */
   push(branchName: string): void {
-    this.logger.info(`Pushing branch: ${branchName}`);
+    logger.info(`Pushing branch: ${branchName}`);
     this.shell.run(`git push -u ${this.getRemoteName()} "${branchName}"`);
   }
 
@@ -432,37 +431,37 @@ ${escapedMessage}
     try {
       const remotesOutput = this.shell.run('git remote').trim();
       if (!remotesOutput) {
-        this.logger.warn('No remotes found, using "origin" as fallback');
+        logger.warn('No remotes found, using "origin" as fallback');
         this.remote_name = 'origin';
         return this.remote_name;
       }
 
       const remotes = remotesOutput.split('\n').map(r => r.trim()).filter(r => r);
-      
+
       // Prefer 'origin' if it exists
       if (remotes.includes('origin')) {
         this.remote_name = 'origin';
         return this.remote_name;
       }
-      
+
       // Fall back to 'upstream' if it exists
       if (remotes.includes('upstream')) {
         this.remote_name = 'upstream';
-        this.logger.debug('Using "upstream" as default remote');
+        logger.debug('Using "upstream" as default remote');
         return this.remote_name;
       }
-      
+
       // Use the first available remote
       if (remotes.length > 0) {
         this.remote_name = remotes[0];
-        this.logger.debug(`Using "${this.remote_name}" as default remote`);
+        logger.debug(`Using "${this.remote_name}" as default remote`);
         return this.remote_name;
       }
-      
+
     } catch (error) {
-      this.logger.warn('Failed to detect remotes, using "origin" as fallback');
+      logger.warn('Failed to detect remotes, using "origin" as fallback');
     }
-    
+
     // Final fallback
     this.remote_name = 'origin';
     return this.remote_name;
@@ -472,7 +471,7 @@ ${escapedMessage}
    * Get remote URL for specified remote
    */
   getRemoteUrl(remoteName?: string): string {
-    if(this.remote_url) {
+    if (this.remote_url) {
       return this.remote_url;
     }
     const remote = remoteName || this.getRemoteName();
@@ -511,7 +510,7 @@ ${escapedMessage}
 
       return '';
     } catch (error) {
-      this.logger.warn(`Could not extract hostname from Git URL: ${url}`);
+      logger.warn(`Could not extract hostname from Git URL: ${url}`);
       return '';
     }
   }
@@ -543,7 +542,7 @@ ${escapedMessage}
 
       return '';
     } catch (error) {
-      this.logger.warn(`Could not extract base URL from Git URL: ${url}`);
+      logger.warn(`Could not extract base URL from Git URL: ${url}`);
       return '';
     }
   }
@@ -571,7 +570,7 @@ ${escapedMessage}
 
       return null;
     } catch (error) {
-      this.logger.error(`Failed to parse git remote URL: ${url}`, error);
+      logger.error(`Failed to parse git remote URL: ${url}`, error);
       return null;
     }
   }
@@ -616,10 +615,10 @@ ${escapedMessage}
   private async probeProtocolForHost(hostname: string): Promise<string> {
     const httpsUrl = `https://${hostname}`;
     try {
-      this.logger.debug(`Probing protocol support for: ${hostname}`);
+      logger.debug(`Probing protocol support for: ${hostname}`);
       // Try HTTPS first (modern standard)
       if (await this.isProtocolSupported(httpsUrl)) {
-        this.logger.debug(`HTTPS supported for: ${hostname}`);
+        logger.debug(`HTTPS supported for: ${hostname}`);
         GitService.protocolCache.set(hostname, httpsUrl);
         return httpsUrl;
       }
@@ -627,15 +626,15 @@ ${escapedMessage}
       // Fallback to HTTP
       const httpUrl = `http://${hostname}`;
       if (await this.isProtocolSupported(httpUrl)) {
-        this.logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
+        logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
         GitService.protocolCache.set(hostname, httpUrl);
         return httpUrl;
       }
 
       // If both fail, keep HTTPS as fallback (already in cache)
-      this.logger.warn(`Could not connect to ${hostname}, keeping HTTPS as default`);
+      logger.warn(`Could not connect to ${hostname}, keeping HTTPS as default`);
     } catch (error) {
-      this.logger.warn(`Error probing ${hostname}:`, error);
+      logger.warn(`Error probing ${hostname}:`, error);
     }
     return httpsUrl;
   }
@@ -654,7 +653,6 @@ ${escapedMessage}
    * @param hostname Optional hostname to clear, if not provided clears all cache
    */
   static clearProtocolCache(hostname?: string): void {
-    const logger = createLogger('GitService');
     if (hostname) {
       GitService.protocolCache.delete(hostname);
       logger.debug(`Cleared protocol cache for: ${hostname}`);
@@ -684,7 +682,7 @@ ${escapedMessage}
     // Try HTTPS first
     const httpsUrl = `https://${hostname}`;
     if (await this.isProtocolSupported(httpsUrl)) {
-      this.logger.debug(`HTTPS supported for: ${hostname}`);
+      logger.debug(`HTTPS supported for: ${hostname}`);
       GitService.protocolCache.set(hostname, httpsUrl);
       return httpsUrl;
     }
@@ -692,13 +690,13 @@ ${escapedMessage}
     // Fallback to HTTP
     const httpUrl = `http://${hostname}`;
     if (await this.isProtocolSupported(httpUrl)) {
-      this.logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
+      logger.debug(`HTTP supported for: ${hostname} (HTTPS not available)`);
       GitService.protocolCache.set(hostname, httpUrl);
       return httpUrl;
     }
 
     // If both fail, use HTTPS as fallback
-    this.logger.warn(`Could not connect to ${hostname}, defaulting to HTTPS`);
+    logger.warn(`Could not connect to ${hostname}, defaulting to HTTPS`);
     GitService.protocolCache.set(hostname, httpsUrl);
     return httpsUrl;
   }
@@ -764,7 +762,7 @@ ${escapedMessage}
         return currentBranch;
       }
 
-      this.logger.debug(`Current branch ${currentBranch} does not exist in remote`);
+      logger.debug(`Current branch ${currentBranch} does not exist in remote`);
 
       const baseBranch = this.getBaseBranch();
       if (baseBranch) {
@@ -789,7 +787,7 @@ ${escapedMessage}
       // Fallback to main if nothing else works
       return 'main';
     } catch (error) {
-      this.logger.warn(`Could not determine target branch, using 'main': ${error}`);
+      logger.warn(`Could not determine target branch, using 'main': ${error}`);
       return 'main';
     }
   }
@@ -811,7 +809,7 @@ ${escapedMessage}
       this.shell.run(`git rev-parse --verify ${branchName}`).trim();
       return true;
     } catch (error) {
-      this.logger.debug(`Remote branch ${branchName} does not exist`);
+      logger.debug(`Remote branch ${branchName} does not exist`);
       return false;
     }
   }
@@ -853,7 +851,7 @@ ${escapedMessage}
 
       return statusOutput.split('\n').map(line => this.parseStatusLine(line)).filter(Boolean) as GitFileStatus[];
     } catch (error) {
-      this.logger.error('Error getting git status:', error);
+      logger.error('Error getting git status:', error);
       return [];
     }
   }
@@ -936,55 +934,55 @@ ${escapedMessage}
    * Display comprehensive Git repository information
    */
   showGitInfo(): void {
-    this.logger.info('Git Repository Information');
-    this.logger.info('─'.repeat(50));
+    logger.info('Git Repository Information');
+    logger.info('─'.repeat(50));
 
     try {
       // Current working directory
       const currentDir = process.cwd();
-      this.logger.info(`Current Working Directory: ${currentDir}`);
+      logger.info(`Current Working Directory: ${currentDir}`);
 
       // Repository root
       const repoRoot = this.getRepositoryRoot();
-      this.logger.info(`Repository Root: ${repoRoot}`);
+      logger.info(`Repository Root: ${repoRoot}`);
 
       // Check if we're in the repository
       const isInRepo = currentDir.startsWith(repoRoot.replace(/\//g, '\\')) ||
         currentDir.startsWith(repoRoot.replace(/\\/g, '/'));
-      this.logger.info(`Working in Repository: ${isInRepo ? 'Yes' : 'No'}`);
+      logger.info(`Working in Repository: ${isInRepo ? 'Yes' : 'No'}`);
 
       // Current branch
       const currentBranch = this.getCurrentBranch();
-      this.logger.info(`Current Branch: ${currentBranch}`);
+      logger.info(`Current Branch: ${currentBranch}`);
 
       // Current commit
       const currentCommit = this.getCurrentCommit();
       const shortCommit = this.getShortCommit();
-      this.logger.info(`Current Commit: ${shortCommit} (${currentCommit})`);
+      logger.info(`Current Commit: ${shortCommit} (${currentCommit})`);
 
       // Remote information
       const remoteName = this.getRemoteName();
       if (remoteName) {
         const remoteUrl = this.getRemoteUrl(remoteName);
-        this.logger.info(`Remote Name: ${remoteName}`);
-        this.logger.info(`Remote URL: ${remoteUrl}`);
+        logger.info(`Remote Name: ${remoteName}`);
+        logger.info(`Remote URL: ${remoteUrl}`);
       } else {
-        this.logger.info('Remote: No remote configured');
+        logger.info('Remote: No remote configured');
       }
 
       // Repository status
       const hasUncommitted = this.hasUncommittedChanges();
       const hasStaged = this.hasStagedChanges();
 
-      this.logger.info('Repository Status:');
-      this.logger.info(`   Uncommitted changes: ${hasUncommitted ? 'Yes' : 'No'}`);
-      this.logger.info(`   Staged changes: ${hasStaged ? 'Yes' : 'No'}`);
+      logger.info('Repository Status:');
+      logger.info(`   Uncommitted changes: ${hasUncommitted ? 'Yes' : 'No'}`);
+      logger.info(`   Staged changes: ${hasStaged ? 'Yes' : 'No'}`);
 
       // Show some recent files if there are changes
       if (hasUncommitted) {
         const statusOutput = this.shell.run("git status --porcelain").trim();
         const files = statusOutput.split('\n').slice(0, 5);
-        this.logger.info('Recent Changes (top 5):');
+        logger.info('Recent Changes (top 5):');
         files.forEach(file => {
           const status = file.substring(0, 2);
           const fileName = file.substring(3);
@@ -992,20 +990,20 @@ ${escapedMessage}
             status.includes('A') ? 'Added' :
               status.includes('D') ? 'Deleted' :
                 status.includes('??') ? 'Untracked' : 'Changed';
-          this.logger.info(`   ${statusIcon}: ${fileName}`);
+          logger.info(`   ${statusIcon}: ${fileName}`);
         });
       }
 
       // User information
       const userName = this.getUserName();
       const userEmail = this.shell.run("git config user.email").trim();
-      this.logger.info(`Git User: ${userName} <${userEmail}>`);
+      logger.info(`Git User: ${userName} <${userEmail}>`);
 
     } catch (error) {
-      this.logger.error(`Error getting Git information: ${error}`);
+      logger.error(`Error getting Git information: ${error}`);
     }
 
-    this.logger.info('─'.repeat(50));
+    logger.info('─'.repeat(50));
   }
 
   /**
@@ -1016,10 +1014,10 @@ ${escapedMessage}
     try {
       const currentBranch = this.getCurrentBranch();
       if (!currentBranch || currentBranch === 'HEAD') return null;
-  
+
       const logGraph = this.shell.run('git log --graph --oneline --decorate --all --simplify-by-decoration');
       const lines = logGraph.split('\n');
-  
+
       // 本地和远程分支列表
       const localBranches = this.shell
         .run("git for-each-ref --format='%(refname:short)' refs/heads/")
@@ -1027,15 +1025,15 @@ ${escapedMessage}
         .split('\n')
         .map(b => b.trim());
       const remotes = this.shell.run('git remote').trim().split('\n').map(r => r.trim());
-  
+
       for (const line of lines) {
         const match = line.match(/\((.*?)\)/);
         if (!match) continue;
-  
+
         const refs = match[1].split(',').map(r => r.trim());
         const candidate = refs.find(r => r !== currentBranch && !r.startsWith('HEAD'));
         if (!candidate) continue;
-  
+
         let cleanBranch = candidate;
 
         // Check if it's a remote branch and extract the local branch name
@@ -1051,17 +1049,17 @@ ${escapedMessage}
         if (!localBranches.includes(cleanBranch)) {
           continue;
         }
-  
-        this.logger.debug(`Detected base branch: ${cleanBranch}`);
+
+        logger.debug(`Detected base branch: ${cleanBranch}`);
         return cleanBranch;
       }
-  
+
       return null;
     } catch (error) {
-      this.logger.error('Error determining base branch from log graph:', error);
+      logger.error('Error determining base branch from log graph:', error);
       return null;
     }
-  }  
+  }
 
   /**
    * Get merge-base commit hash between current branch and target branch
@@ -1071,21 +1069,21 @@ ${escapedMessage}
   getMergeBase(otherBranch: string): string | null {
     try {
       if (!otherBranch || otherBranch.trim() === '') {
-        this.logger.warn('Empty branch name provided for merge-base');
+        logger.warn('Empty branch name provided for merge-base');
         return null;
       }
 
       const mergeBase = this.shell.run(`git merge-base HEAD ${otherBranch}`).trim();
 
       if (!mergeBase || mergeBase === '') {
-        this.logger.warn(`No merge-base found between current branch and ${otherBranch}`);
+        logger.warn(`No merge-base found between current branch and ${otherBranch}`);
         return null;
       }
 
-      this.logger.debug(`Merge-base between current branch and ${otherBranch}: ${mergeBase}`);
+      logger.debug(`Merge-base between current branch and ${otherBranch}: ${mergeBase}`);
       return mergeBase;
     } catch (error) {
-      this.logger.error(`Error getting merge-base with branch ${otherBranch}:`, error);
+      logger.error(`Error getting merge-base with branch ${otherBranch}:`, error);
       return null;
     }
   }
@@ -1098,7 +1096,7 @@ ${escapedMessage}
   getBranchGraph(limit: number = 20): string {
     try {
       if (limit <= 0) {
-        this.logger.warn('Invalid limit for branch graph, using default value 20');
+        logger.warn('Invalid limit for branch graph, using default value 20');
         limit = 20;
       }
 
@@ -1107,14 +1105,14 @@ ${escapedMessage}
       const graphOutput = this.shell.run(graphCommand).trim();
 
       if (!graphOutput) {
-        this.logger.debug('No branch graph output generated');
+        logger.debug('No branch graph output generated');
         return '';
       }
 
-      this.logger.debug(`Generated branch graph with ${limit} commits`);
+      logger.debug(`Generated branch graph with ${limit} commits`);
       return graphOutput;
     } catch (error) {
-      this.logger.error('Error getting branch graph:', error);
+      logger.error('Error getting branch graph:', error);
       return '';
     }
   }

@@ -1,7 +1,7 @@
 import { GitPlatformService, GitPlatformProject, MergeRequestResponse, MergeRequestOptions } from './git-platform-service.js';
 import { GitService } from './git-service.js';
 import { HttpClient } from '../http/http-client.js';
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 
 /**
  * GitLab API project response
@@ -26,7 +26,6 @@ interface GitlabMergeRequest {
  * GitLab platform service implementation
  */
 export class GitlabPlatformService extends GitPlatformService {
-  private readonly logger_ = createLogger('GitlabPlatformService');
   constructor(token: string, baseUrl: string, gitService: GitService, http: HttpClient) {
     super(token, baseUrl, gitService, http);
   }
@@ -39,7 +38,7 @@ export class GitlabPlatformService extends GitPlatformService {
     const encodedPath = encodeURIComponent(projectPath);
     const apiUrl = `${this.baseUrl}/api/v4/projects/${encodedPath}`;
 
-    this.logger_.info(`🔍 Fetching GitLab project info from: ${apiUrl}`);
+    logger.info(`🔍 Fetching GitLab project info from: ${apiUrl}`);
 
     try {
       const project = await this.http.requestJson<GitlabProject>(
@@ -51,8 +50,8 @@ export class GitlabPlatformService extends GitPlatformService {
         }
       );
 
-      this.logger_.info(`✅ Found GitLab project: ${project.name} (ID: ${project.id})`);
-      this.logger_.info(`📋 Full path: ${project.path_with_namespace}`);
+      logger.info(`✅ Found GitLab project: ${project.name} (ID: ${project.id})`);
+      logger.info(`📋 Full path: ${project.path_with_namespace}`);
 
       return {
         id: project.id.toString(),
@@ -96,13 +95,13 @@ export class GitlabPlatformService extends GitPlatformService {
     // Add assignee_id if specified
     if (assignee_id !== undefined && assignee_id > 0) {
       bodyParams.push(`assignee_id=${assignee_id}`);
-      this.logger_.info(`📋 Setting assignee ID: ${assignee_id}`);
+      logger.info(`📋 Setting assignee ID: ${assignee_id}`);
     }
 
     // Add description if specified
     if (description) {
       bodyParams.push(`description=${encodeURIComponent(description)}`);
-      this.logger_.info(`📋 Setting description: ${description}`);
+      logger.info(`📋 Setting description: ${description}`);
     }
 
     // Add assignee_ids if specified and not empty
@@ -113,7 +112,7 @@ export class GitlabPlatformService extends GitPlatformService {
         validAssigneeIds.forEach(id => {
           bodyParams.push(`assignee_ids[]=${id}`);
         });
-        this.logger_.info(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
+        logger.info(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
       }
     }
 
@@ -125,11 +124,11 @@ export class GitlabPlatformService extends GitPlatformService {
         validReviewerIds.forEach(id => {
           bodyParams.push(`reviewer_ids[]=${id}`);
         });
-        this.logger_.info(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
+        logger.info(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
       }
     }
 
-    this.logger_.info(`📋 Creating GitLab merge request for project ${project.id}`);
+    logger.info(`📋 Creating GitLab merge request for project ${project.id}`);
 
     try {
       const resp = await this.http.requestJson<GitlabMergeRequest>(
@@ -142,7 +141,7 @@ export class GitlabPlatformService extends GitPlatformService {
         bodyParams.join('&')
       );
 
-      this.logger_.info(`✅ Created GitLab merge request: ${resp.web_url}`);
+      logger.info(`✅ Created GitLab merge request: ${resp.web_url}`);
       
       // Convert to unified response format
       return {

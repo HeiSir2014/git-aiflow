@@ -25,6 +25,10 @@
 - 📱 **WeCom Notifications**: Send notifications via WeCom Webhook
 - 🎯 **Smart Branch Detection**: Automatically identify target branches (main/master/develop)
 - 🔧 **Flexible Configuration**: Support multiple configuration options and environment variables
+- 📝 **Interactive File Selection**: Smart file staging with batch selection and categorized display
+- 🎯 **Commit-Only Mode**: Support for committing code changes without creating merge requests
+- 👥 **Merge Request Management**: Support for automatic assignee and reviewer configuration
+- 🌍 **Multi-Language Support**: AI-generated content supports multiple languages (Chinese, English, Japanese, etc.)
 
 ## 🛠️ Tool Overview
 
@@ -163,29 +167,56 @@ For handling staged Git changes:
 aiflow init                    # Local configuration
 aiflow init --global           # Global configuration
 
-# 2. Stage your changes
-git add .
+# 2. Stage your changes (or let the tool auto-select)
+git add .                      # Manually stage all changes
+# Or run aiflow directly, the tool will provide interactive file selection
 
 # 3. Run the auto MR tool
-npm run aiflow
+aiflow                         # Full workflow: stage → commit → create MR
+aiflow --commit-only           # Commit-only mode: stage → commit (no MR creation)
+aiflow -co                     # Commit-only mode (short parameter)
 
-# Or with CLI arguments to override config
+# 4. Use CLI arguments to override config
 aiflow -ok sk-abc123 -gat github.com=ghp-xyz789
 
-# View configuration help
-aiflow --config-help
+# 5. View help information
+aiflow --config-help           # View configuration options help
+aiflow --help                  # View general help
+```
 
-# View general help
-aiflow --help
+**Interactive File Selection Feature**:
+When no files are staged, the tool automatically provides an interactive file selection interface:
+
+```bash
+📁 Detected file changes:
+──────────────────────────────────────────────────
+
+📝 Modified files:
+  1. src/components/UserProfile.tsx
+  2. src/api/userService.ts
+
+❓ Untracked files:
+  3. src/types/user.ts
+  4. README.md
+
+🎯 File selection options:
+  • Enter file numbers (e.g., 1,3,5 or 1-5)
+  • Type "all" to stage all files
+  • Type "modified" to stage only modified files
+  • Type "untracked" to stage only untracked files
+  • Press Enter or type "cancel" to cancel
+
+📋 Select files to stage: 1,3
 ```
 
 **Workflow**:
-1. ✅ Check staged changes
+1. ✅ Check staged changes (or provide interactive file selection if none)
 2. 🎯 Auto-detect target branch
 3. 🤖 AI-generate commit message and branch name
 4. 📤 Create branch and push
-5. 📋 Create GitLab merge request
+5. 📋 Create merge request (with assignee and reviewer support)
 6. 📱 Send WeCom notification
+7. 📋 Copy MR info to clipboard
 
 ### AIFlow Conan Tool
 
@@ -264,6 +295,11 @@ aiflow init --global
 | `-we` | `--wecom-enable` | Enable WeCom notifications | Optional |
 | `-sc` | `--squash-commits` | Squash commits | Optional |
 | `-rsb` | `--remove-source-branch` | Remove source branch | Optional |
+| `-ggl` | `--git-generation-lang` | AI generation language | Optional |
+| `-co` | `--commit-only` | Commit-only mode | Optional |
+| `-mrai` | `--merge-request-assignee-id` | Assignee user ID | Optional |
+| `-mrais` | `--merge-request-assignee-ids` | Assignee user ID list | Optional |
+| `-mrris` | `--merge-request-reviewer-ids` | Reviewer user ID list | Optional |
 
 ### Environment Variables (Legacy Support)
 
@@ -279,6 +315,10 @@ aiflow init --global
 | `WECOM_ENABLE` | Enable WeCom notifications | `false` |
 | `SQUASH_COMMITS` | Whether to squash commits | `true` |
 | `REMOVE_SOURCE_BRANCH` | Delete source branch after merge | `true` |
+| `GIT_GENERATION_LANG` | AI generation language | `en` |
+| `MERGE_REQUEST_ASSIGNEE_ID` | Assignee user ID | - |
+| `MERGE_REQUEST_ASSIGNEE_IDS` | Assignee user ID list | - |
+| `MERGE_REQUEST_REVIEWER_IDS` | Reviewer user ID list | - |
 
 ### Git Platform Token Permissions
 
@@ -335,6 +375,101 @@ The tool uses OpenAI API to analyze code differences and generate:
    - Auto-clean special characters
    - Comply with Git branch naming conventions
 
+## 📚 Use Cases
+
+### Case 1: Daily Feature Development
+
+```bash
+# Develop new feature
+git add src/components/UserProfile.tsx
+git add src/api/userService.ts
+
+# Use AIFlow for automated processing
+aiflow
+
+# Output example:
+# ✅ Generated commit message: feat(user): add user profile component with API integration
+# ✅ Generated branch name: feat/user-profile-component  
+# 🎉 Merge request created: https://gitlab.com/project/-/merge_requests/123
+```
+
+### Case 2: Commit-Only Mode
+
+```bash
+# Only commit code changes, don't create MR
+aiflow --commit-only
+
+# Output example:
+# ✅ Generated commit message: fix(auth): resolve login validation issue
+# ✅ Successfully committed changes
+# 📝 Commit message: fix(auth): resolve login validation issue
+```
+
+### Case 3: Interactive File Selection
+
+```bash
+# Run directly, let the tool auto-select files
+aiflow
+
+# Tool will display:
+# 📁 Detected file changes:
+# 📝 Modified files:
+#   1. src/auth.ts
+#   2. src/types.ts
+# ❓ Untracked files:
+#   3. README.md
+# 
+# 📋 Select files to stage: 1,3
+```
+
+### Case 4: C++ Package Update
+
+```bash
+# Update Conan package
+aiflow-conan zterm
+
+# Automatic process:
+# 📦 Detected latest version: zterm/1.0.0.26
+# 📝 Updated configuration files
+# 🤖 Generated commit message: chore: update zterm package to version 1.0.0.26
+# 📋 Created merge request
+# 📱 Sent team notification
+```
+
+### Case 5: Team Collaboration Configuration
+
+```bash
+# Configure merge request assignee and reviewers
+aiflow -mrai 123 -mrris 456,789
+
+# Or use configuration file
+merge_request:
+  assignee_id: 123
+  reviewer_ids: [456, 789]
+```
+
+## 🎯 Best Practices
+
+### 1. Configuration Management
+- **Local Project Config**: Project-specific settings in `.aiflow/config.yaml`
+- **Global Config**: Common settings in global configuration file
+- **Sensitive Information**: Use environment variables for API keys
+
+### 2. Team Collaboration
+- **Unified Config**: Team uses the same OpenAI model configuration
+- **Branch Strategy**: Configure appropriate branch protection rules
+- **Notification Settings**: Configure enterprise WeChat group notifications
+
+### 3. Security Considerations
+- **Access Tokens**: Regularly rotate Git platform access tokens
+- **Permission Control**: Use principle of least privilege for token configuration
+- **Sensitive Data**: Don't hardcode keys in configuration files
+
+### 4. Workflow Optimization
+- **Commit Frequency**: Recommend small, frequent commits
+- **Branch Naming**: Let AI auto-generate semantic branch names
+- **Code Review**: Configure automatic reviewer assignment
+
 ## 🔍 Troubleshooting
 
 ### Common Issues
@@ -378,7 +513,26 @@ ls -la conandata.yml conan.win.lock
 curl http://your-conan-server.com/v1/ping
 ```
 
-**6. Windows PowerShell Execution Policy Error**
+**6. Interactive file selection not working**
+```bash
+# Ensure running in a Git repository
+git status
+
+# Check if there are file changes
+git diff --name-only
+```
+
+**7. Merge request assignment failure**
+```bash
+# Check if user IDs are correct
+# GitLab: Check user IDs in project settings
+# GitHub: Use usernames instead of IDs
+
+# Verify access token permissions
+curl -H "PRIVATE-TOKEN: your-token" https://gitlab.com/api/v4/projects/PROJECT_ID/members
+```
+
+**8. Windows PowerShell Execution Policy Error**
 
 **Problem Description**:
 When running the `aiflow` command on Windows systems, you may encounter the following error:

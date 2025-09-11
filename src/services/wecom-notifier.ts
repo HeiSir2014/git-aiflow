@@ -1,4 +1,4 @@
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 import { HttpClient } from '../http/http-client.js';
 
 /**
@@ -7,12 +7,11 @@ import { HttpClient } from '../http/http-client.js';
 export class WecomNotifier {
   private readonly webhook: string;
   private readonly http: HttpClient;
-  private readonly logger = createLogger('WecomNotifier');
 
   constructor(webhook: string) {
     this.webhook = webhook;
     this.http = new HttpClient();
-    this.logger.info('WecomNotifier initialized');
+    logger.info('WecomNotifier initialized');
   }
 
   async sendMergeRequestNotice(
@@ -24,9 +23,9 @@ export class WecomNotifier {
     mentionedMobileList?: string[],
     isAtAll?: boolean
   ): Promise<void> {
-    this.logger.info(`Sending merge request notice: ${branch} → ${target}`);
-    this.logger.debug(`MR URL: ${mrUrl}`);
-    this.logger.debug(`Changed files count: ${changedFiles.length}`);
+    logger.info(`Sending merge request notice: ${branch} → ${target}`);
+    logger.debug(`MR URL: ${mrUrl}`);
+    logger.debug(`Changed files count: ${changedFiles.length}`);
 
     const md = `🎉 **合并请求已创建，请及时进行代码审查！**
 📋 **MR链接**: [点击查看](${mrUrl}) \`${mrUrl}\`
@@ -48,16 +47,16 @@ ${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles
         { "Content-Type": "application/json" },
         JSON.stringify({ msgtype: "markdown_v2", markdown_v2: { content: md } })
       );
-      this.logger.info('Markdown notification sent successfully');
+      logger.info('Markdown notification sent successfully');
     } catch (error) {
-      this.logger.error('Failed to send markdown notification:', error);
+      logger.error('Failed to send markdown notification:', error);
       throw error;
     }
 
     if ((mentionedMobileList && mentionedMobileList.length > 0) || isAtAll) {
-      this.logger.info('Sending mention notification');
-      this.logger.debug(`Mentioned mobile list: ${JSON.stringify(mentionedMobileList)}`);
-      this.logger.debug(`Is @all: ${isAtAll}`);
+      logger.info('Sending mention notification');
+      logger.debug(`Mentioned mobile list: ${JSON.stringify(mentionedMobileList)}`);
+      logger.debug(`Is @all: ${isAtAll}`);
 
       const content = `🎉 合并请求已创建，请及时进行代码审查！`;
       const _mentionedMobileListStr = mentionedMobileList?.filter(Boolean);
@@ -65,7 +64,7 @@ ${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles
         _mentionedMobileListStr?.push('@all');
       }
       if (!_mentionedMobileListStr || _mentionedMobileListStr.length === 0) {
-        this.logger.warn('No valid mobile numbers to mention, skipping mention notification');
+        logger.warn('No valid mobile numbers to mention, skipping mention notification');
         return;
       }
 
@@ -76,9 +75,9 @@ ${changedFiles.slice(0, 10).map(file => `• ${file}`).join('\n')}${changedFiles
           { "Content-Type": "application/json" },
           JSON.stringify({ msgtype: "text", text: { content, mentioned_mobile_list: _mentionedMobileListStr } })
         );
-        this.logger.info(`Mention notification sent successfully to ${_mentionedMobileListStr.length} recipients`);
+        logger.info(`Mention notification sent successfully to ${_mentionedMobileListStr.length} recipients`);
       } catch (error) {
-        this.logger.error('Failed to send mention notification:', error);
+        logger.error('Failed to send mention notification:', error);
         throw error;
       }
     }

@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { Shell } from '../shell.js';
+import { logger } from '../logger.js';
 
 /**
  * Interface for update cache data
@@ -25,7 +26,7 @@ export class UpdateChecker {
     // Try multiple possible locations for package.json
     const currentFilePath = fileURLToPath(import.meta.url);
     const currentDir = dirname(currentFilePath);
-    
+
     const possiblePaths = [
       // When running from built dist directory
       join(currentDir, '..', '..', 'package.json'),
@@ -37,7 +38,7 @@ export class UpdateChecker {
       // Alternative paths for different installation scenarios
       join(dirname(dirname(currentDir)), 'package.json')
     ];
-    
+
     let packageJsonPath = '';
     for (const path of possiblePaths) {
       if (existsSync(path)) {
@@ -45,11 +46,11 @@ export class UpdateChecker {
         break;
       }
     }
-    
+
     if (!packageJsonPath) {
       throw new Error('Could not locate package.json file');
     }
-    
+
     try {
       this.packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
     } catch (error) {
@@ -74,7 +75,7 @@ export class UpdateChecker {
     try {
       // Check if the script is running from a global npm installation
       const scriptPath = process.argv[1];
-      
+
       // Common patterns for global npm installations
       const globalPatterns = [
         '/usr/local/lib/node_modules/',
@@ -88,7 +89,7 @@ export class UpdateChecker {
         '\\node_modules\\.bin\\'
       ];
 
-      const isGlobal = globalPatterns.some(pattern => 
+      const isGlobal = globalPatterns.some(pattern =>
         scriptPath.includes(pattern) || scriptPath.includes(pattern.replace(/\//g, '\\'))
       );
 
@@ -107,7 +108,7 @@ export class UpdateChecker {
 
       return false;
     } catch (error) {
-      console.warn('⚠️ Failed to detect installation type:', error instanceof Error ? error.message : 'Unknown error');
+      logger.warn('⚠️ Failed to detect installation type:', error instanceof Error ? error.message : 'Unknown error');
       return false;
     }
   }
@@ -122,7 +123,7 @@ export class UpdateChecker {
         return JSON.parse(cacheData);
       }
     } catch (error) {
-      console.warn('⚠️ Failed to load update cache:', error instanceof Error ? error.message : 'Unknown error');
+      logger.warn('⚠️ Failed to load update cache:', error instanceof Error ? error.message : 'Unknown error');
     }
 
     return { lastCheckTime: 0 };
@@ -135,7 +136,7 @@ export class UpdateChecker {
     try {
       writeFileSync(this.cacheFilePath, JSON.stringify(cache, null, 2), 'utf8');
     } catch (error) {
-      console.warn('⚠️ Failed to save update cache:', error instanceof Error ? error.message : 'Unknown error');
+      logger.warn('⚠️ Failed to save update cache:', error instanceof Error ? error.message : 'Unknown error');
     }
   }
 
@@ -153,22 +154,22 @@ export class UpdateChecker {
    */
   private async performAutoUpdate(latestVersion: string): Promise<boolean> {
     try {
-      console.log(`🔄 Updating git-aiflow from ${this.packageJson.version} to ${latestVersion}...`);
-      
+      logger.info(`🔄 Updating git-aiflow from ${this.packageJson.version} to ${latestVersion}...`);
+
       // Run npm install -g git-aiflow@latest
       const result = this.shell.run('npm install -g git-aiflow@latest');
 
       // Check if the command was successful by looking for success indicators in output
       if (result.includes('added') || result.includes('changed') || result.includes('updated')) {
-        console.log(`✅ Successfully updated to git-aiflow@${latestVersion}`);
-        console.log('🔄 Please restart the command to use the new version.');
+        logger.info(`✅ Successfully updated to git-aiflow@${latestVersion}`);
+        logger.info('🔄 Please restart the command to use the new version.');
         return true;
       } else {
-        console.error(`❌ Failed to update git-aiflow:`, result);
+        logger.error(`❌ Failed to update git-aiflow:`, result);
         return false;
       }
     } catch (error) {
-      console.error(`❌ Error during auto-update:`, error instanceof Error ? error.message : 'Unknown error');
+      logger.error(`❌ Error during auto-update:`, error instanceof Error ? error.message : 'Unknown error');
       return false;
     }
   }
@@ -180,15 +181,15 @@ export class UpdateChecker {
     try {
       // Only check if this is a global installation
       if (!this.isGlobalInstallation()) {
-        console.log('🔄 Skipping update check (not a global installation)');
+        logger.info('🔄 Skipping update check (not a global installation)');
         return;
       }
 
-      console.log('🔄 Checking for updates...');
+      logger.info('🔄 Checking for updates...');
 
       // Only check if enough time has passed since last check
       if (!this.shouldCheckForUpdates()) {
-        console.log('🔄 Skipping update check (not enough time has passed since last check)');
+        logger.info('🔄 Skipping update check (not enough time has passed since last check)');
         return;
       }
 
@@ -201,20 +202,20 @@ export class UpdateChecker {
       // Update the cache with current check time
       const cache = this.loadCache();
       cache.lastCheckTime = Date.now();
-      
+
       if (notifier.update) {
-        console.log(`📦 Update available: ${this.packageJson.version} → ${notifier.update.latest}`);
-        
+        logger.info(`📦 Update available: ${this.packageJson.version} → ${notifier.update.latest}`);
+
         // Store the latest version in cache
         cache.lastVersion = notifier.update.latest;
         this.saveCache(cache);
 
         // Perform automatic update
         const updateSuccess = await this.performAutoUpdate(notifier.update.latest);
-        
+
         if (updateSuccess) {
           // Exit the process after successful update so user can restart with new version
-          console.log('🚀 Update completed! Please run the command again.');
+          logger.info('🚀 Update completed! Please run the command again.');
           return;
         }
       } else {
@@ -222,8 +223,8 @@ export class UpdateChecker {
         this.saveCache(cache);
       }
     } catch (error) {
-      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
-      
+      logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
+
       // Still update the cache to avoid repeated failed checks
       const cache = this.loadCache();
       cache.lastCheckTime = Date.now();
@@ -239,7 +240,7 @@ export class UpdateChecker {
     const cache = this.loadCache();
     cache.lastCheckTime = 0;
     this.saveCache(cache);
-    
+
     await this.checkAndUpdate();
   }
 

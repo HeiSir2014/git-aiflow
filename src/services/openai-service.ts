@@ -1,5 +1,5 @@
 import { HttpClient } from '../http/http-client.js';
-import { createLogger } from '../logger.js';
+import { logger } from '../logger.js';
 
 /**
  * Result of AI-generated commit information
@@ -18,7 +18,6 @@ export class OpenAiService {
   private readonly apiUrl: string;
   private readonly model: string;
   private readonly http: HttpClient;
-  private readonly logger = createLogger('OpenAiService');
 
   constructor(apiKey: string, apiUrl: string, model: string, http?: HttpClient) {
     this.apiKey = apiKey;
@@ -32,7 +31,7 @@ export class OpenAiService {
     if (apiUrl.endsWith('/chat/completions')) { // trim /v1
       this.apiUrl = apiUrl.slice(0, -10);
     }
-    this.logger.info(`Initialized OpenAI service`, { apiUrl: this.apiUrl, model: this.model });
+    logger.info(`Initialized OpenAI service`, { apiUrl: this.apiUrl, model: this.model });
   }
 
   /**
@@ -93,7 +92,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
       ],
       temperature: 0.1, // Low temperature for consistent, accurate commit messages
     });
-    this.logger.debug(`OpenAI request body: ${body}`);
+    logger.debug(`OpenAI request body: ${body}`);
     const resp = await this.http.requestJson<OpenAiResp>(
       `${this.apiUrl}/chat/completions`,
       "POST",
@@ -104,7 +103,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
       body
     );
     const rawContent = resp.choices[0].message.content;
-    this.logger.debug(`OpenAI response: ${rawContent}`);
+    logger.debug(`OpenAI response: ${rawContent}`);
 
     // Clean up the response - remove markdown code blocks if present
     let cleanContent = rawContent.trim();
@@ -118,13 +117,13 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
 
     try {
       const content = JSON.parse(cleanContent);
-      return { 
-        commit: content.commit, 
-        branch: content.branch, 
-        description: content.description || '' 
+      return {
+        commit: content.commit,
+        branch: content.branch,
+        description: content.description || ''
       } as CommitGenerationResult;
     } catch (error) {
-      this.logger.error("Failed to parse AI response:", cleanContent);
+      logger.error("Failed to parse AI response:", cleanContent);
       throw new Error(`Invalid JSON response from AI: ${error}`);
     }
   }
@@ -133,7 +132,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
    * Get language display name for prompt
    */
   private getLanguageName(language: string): string {
-    if(!language) {
+    if (!language) {
       return 'English';
     }
     language = language.toLowerCase();
@@ -152,7 +151,7 @@ CRITICAL: Return ONLY valid JSON format: {"commit":"<msg>", "branch":"<type/desc
       'pt': 'Portuguese',
       'it': 'Italian'
     };
-    
+
     return languageMap[language] || 'English';
   }
 }
