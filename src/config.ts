@@ -866,11 +866,13 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
   try {
     // Incremental configuration mode selection
     let configModules: string[] = [];
+    let isIncrementalMode = false;
     const canUseIncrementalMode = (hasExistingConfig && isGlobal) || (hasGlobalConfig && !isGlobal);
 
     if (canUseIncrementalMode) {
       const incrementalMode = await question('是否使用增量配置模式？(y/N): ');
       if (incrementalMode.toLowerCase() === 'y' || incrementalMode.toLowerCase() === 'yes') {
+        isIncrementalMode = true;
         console.log('\n📋 请选择要配置的模块 (可多选，用逗号分隔):');
         console.log('  1. openai     - OpenAI API 配置');
         console.log('  2. git-tokens - Git 访问令牌配置');
@@ -1107,7 +1109,7 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     rl.close();
 
     // Create configuration file
-    await createConfigFile(configData, isGlobal, configModules, canUseIncrementalMode);
+    await createConfigFile(configData, isGlobal, configModules, isIncrementalMode);
 
     console.log('\n✅ 配置初始化完成！');
     if (canUseIncrementalMode && configModules.length < 6) {
@@ -1148,6 +1150,17 @@ export async function createConfigFile(
   // Generate YAML content with comments
   let yamlContent = '';
 
+  // Load existing global config for incremental updates
+  let existingConfig: any = {};
+  if (isIncrementalMode && isGlobal && fs.existsSync(globalConfigPath)) {
+    try {
+      const existingContent = fs.readFileSync(globalConfigPath, 'utf8');
+      existingConfig = yaml.load(existingContent) as any || {};
+    } catch (error) {
+      console.warn('⚠️  无法读取现有全局配置，将创建新配置');
+    }
+  }
+
   if (isIncrementalMode && !isGlobal && configModules.length < 6) {
     // For incremental local config, only include selected modules
     yamlContent = `# AIFlow 本地配置文件 (增量模式)
@@ -1162,27 +1175,64 @@ export async function createConfigFile(
 `;
   }
 
-  // Add sections based on selected modules
-  if (configModules.includes('openai')) {
+  // Add sections based on selected modules or existing config
+  const allModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+  const modulesToInclude = isIncrementalMode && isGlobal 
+    ? allModules  // In global incremental mode, include all modules
+    : configModules;  // In other modes, only include selected modules
+
+  // Helper function to get config for a module (new config for selected, existing for others)
+  const getModuleConfig = (moduleName: string, newConfig: any, existingConfig: any) => {
+    if (isIncrementalMode && isGlobal) {
+      if (configModules.includes(moduleName)) {
+        return newConfig;  // Use new config for selected modules
+      } else {
+        // For non-selected modules, try to find existing config
+        // Map module names to config keys
+        const configKeyMap: { [key: string]: string } = {
+          'openai': 'openai',
+          'git-tokens': 'git_access_tokens',
+          'conan': 'conan',
+          'wecom': 'wecom',
+          'git': 'git',
+          'mr': 'merge_request'
+        };
+        const configKey = configKeyMap[moduleName] || moduleName;
+        if (existingConfig[configKey]) {
+          return existingConfig[configKey];  // Use existing config for non-selected modules
+        } else {
+          return newConfig;  // Fallback to new config if no existing config
+        }
+      }
+    } else {
+      return newConfig;  // Use new config for non-incremental mode
+    }
+  };
+
+  if (modulesToInclude.includes('openai')) {
+    const openaiConfig = getModuleConfig('openai', configData.openai, existingConfig);
+    
     yamlContent += `# OpenAI API 配置 - 用于AI驱动的功能
 openai:
   # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
-  key: ${configData.openai.key || 'your-openai-api-key'}
+  key: ${openaiConfig.key || 'your-openai-api-key'}
   
   # OpenAI API 基础URL (必需) - API请求的端点地址
-  baseUrl: ${configData.openai.baseUrl}
+  baseUrl: ${openaiConfig.baseUrl || 'https://api.openai.com/v1'}
   
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
-  model: ${configData.openai.model}
+  model: ${openaiConfig.model || 'gpt-3.5-turbo'}
 
 `;
   }
 
-  if (configModules.includes('git-tokens')) {
+  if (modulesToInclude.includes('git-tokens')) {
+    const gitTokensConfig = getModuleConfig('git_access_tokens', configData.git_access_tokens, existingConfig);
+    
     yamlContent += `# Git 访问令牌配置 - 支持多个Git托管平台
 git_access_tokens:
-${Object.keys(configData.git_access_tokens || {}).length > 0
-        ? Object.entries(configData.git_access_tokens).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
+${Object.keys(gitTokensConfig || {}).length > 0
+        ? Object.entries(gitTokensConfig).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
         : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
   # github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
   
@@ -1195,56 +1245,64 @@ ${Object.keys(configData.git_access_tokens || {}).length > 0
 `;
   }
 
-  if (configModules.includes('conan')) {
+  if (modulesToInclude.includes('conan')) {
+    const conanConfig = getModuleConfig('conan', configData.conan, existingConfig);
+    
     yamlContent += `# Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
   # Conan 远程仓库基础URL (Conan操作时必需) - Conan包仓库的API地址
-  ${configData.conan.remoteBaseUrl ? `remoteBaseUrl: ${configData.conan.remoteBaseUrl}` : '# remoteBaseUrl: https://conan.example.com'}
+  ${conanConfig.remoteBaseUrl ? `remoteBaseUrl: ${conanConfig.remoteBaseUrl}` : '# remoteBaseUrl: https://conan.example.com'}
   
   # Conan 远程仓库名称 (可选) - 默认使用的仓库名称，默认为'repo'
-  remoteRepo: ${configData.conan.remoteRepo}
+  remoteRepo: ${conanConfig.remoteRepo || 'repo'}
 
 `;
   }
 
-  if (configModules.includes('wecom')) {
+  if (modulesToInclude.includes('wecom')) {
+    const wecomConfig = getModuleConfig('wecom', configData.wecom, existingConfig);
+    
     yamlContent += `# 企业微信通知配置 - 用于发送操作结果通知
 wecom:
   # 启用企业微信通知 (可选) - 是否开启通知功能，默认为false
-  enable: ${configData.wecom.enable}
+  enable: ${wecomConfig.enable || false}
   
   # 企业微信机器人Webhook地址 (可选) - 用于发送通知消息的机器人地址
-  ${configData.wecom.webhook ? `webhook: ${configData.wecom.webhook}` : '# webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-key'}
+  ${wecomConfig.webhook ? `webhook: ${wecomConfig.webhook}` : '# webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-key'}
 
 `;
   }
 
-  if (configModules.includes('git')) {
+  if (modulesToInclude.includes('git')) {
+    const gitConfig = getModuleConfig('git', configData.git, existingConfig);
+    
     yamlContent += `# Git 合并请求配置 - 控制MR的默认行为
 git:
   # 压缩提交 (可选) - 合并时是否将多个提交压缩为一个，默认为true
-  squashCommits: ${configData.git.squashCommits}
+  squashCommits: ${gitConfig.squashCommits !== undefined ? gitConfig.squashCommits : true}
   
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
-  removeSourceBranch: ${configData.git.removeSourceBranch}
+  removeSourceBranch: ${gitConfig.removeSourceBranch !== undefined ? gitConfig.removeSourceBranch : true}
   
   # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
-  generation_lang: ${configData.git.generation_lang}
+  generation_lang: ${gitConfig.generation_lang || 'en'}
 
 `;
   }
 
-  if (configModules.includes('mr')) {
+  if (modulesToInclude.includes('mr')) {
+    const mrConfig = getModuleConfig('mr', configData.merge_request, existingConfig);
+    
     yamlContent += `# 合并请求指派配置 - 配置指派人和审查者
 merge_request:
   # 单个指派人用户ID (可选) - 设置为0或留空取消指派
-  assignee_id: ${configData.merge_request?.assignee_id || 0}
+  assignee_id: ${mrConfig?.assignee_id || 0}
   
   # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
-  assignee_ids: ${configData.merge_request?.assignee_ids ? JSON.stringify(configData.merge_request.assignee_ids) : '[]'}
+  assignee_ids: ${mrConfig?.assignee_ids ? JSON.stringify(mrConfig.assignee_ids) : '[]'}
   
   # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
-  reviewer_ids: ${configData.merge_request?.reviewer_ids ? JSON.stringify(configData.merge_request.reviewer_ids) : '[]'}
+  reviewer_ids: ${mrConfig?.reviewer_ids ? JSON.stringify(mrConfig.reviewer_ids) : '[]'}
 `;
   }
 
