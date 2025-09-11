@@ -33,6 +33,234 @@ export class GitService {
     this.logger.debug('GitService initialized');
   }
 
+  /**
+   * Safely checkout to the specified branch with the following steps:
+   * 1. Automatically stash working directory and staged changes (including untracked files)
+   * 2. Fetch remote branch and validate its existence
+   * 3. If local branch exists: checkout and attempt fast-forward to remote/<branch>
+   *    - Only fast-forward (--ff-only) to avoid merge commits
+   *    - If fast-forward fails, preserve current commit with warning
+   * 4. If local branch doesn't exist: create tracking branch from remote/<branch>
+   * 5. Finally attempt stash pop (if conflicts occur, preserve and prompt for manual resolution)
+   * 
+   * @param branchName The name of the branch to checkout
+   */
+  checkout(branchName: string): void {
+    this.logger.info(`Checking out branch: ${branchName}`);
+
+    const remoteName = this.getRemoteName();
+    const currentHead = this.getCurrentHead();
+    const stashResult = this.handleWorkingDirectoryChanges(branchName);
+    
+    if (!this.fetchAndValidateRemoteBranch(branchName, remoteName, stashResult.pushedStash)) {
+      return;
+    }
+
+    const localExists = this.checkLocalBranchExists(branchName);
+    
+    if (localExists) {
+      this.checkoutExistingBranch(branchName, remoteName, stashResult.pushedStash);
+    } else {
+      this.createTrackingBranch(branchName, remoteName, stashResult.pushedStash);
+    }
+
+    this.restoreWorkingDirectoryChanges(stashResult.pushedStash);
+    this.logCheckoutCompletion(currentHead, branchName);
+  }
+
+  /**
+   * Gets the current HEAD commit hash.
+   * @returns The short commit hash or empty string if failed
+   */
+  private getCurrentHead(): string {
+    return this.executeGitCommand(
+      'git rev-parse --short=12 HEAD',
+      'Reading current HEAD'
+    ).output;
+  }
+
+  /**
+   * Handles uncommitted changes by stashing them if necessary.
+   * @param branchName The target branch name for stash message
+   * @returns Object containing stash status
+   */
+  private handleWorkingDirectoryChanges(branchName: string): {pushedStash: boolean} {
+    const isDirty = !this.executeGitCommand('git diff --quiet && git diff --cached --quiet').success;
+    let pushedStash = false;
+
+    if (isDirty) {
+      const stashMessage = `auto-stash: checkout -> ${branchName}`;
+      const stashResult = this.executeGitCommand(
+        `git stash push -u -m "${stashMessage}"`,
+        'Saving working directory changes to stash'
+      );
+      
+      if (!stashResult.success) {
+        this.logger.error('Uncommitted changes detected and unable to auto-stash. Operation aborted.');
+        return {pushedStash: false};
+      }
+      pushedStash = true;
+    }
+
+    return {pushedStash};
+  }
+
+  /**
+   * Fetches and validates the remote branch exists.
+   * @param branchName The branch name to fetch and validate
+   * @param remoteName The remote name to use
+   * @param pushedStash Whether stash was pushed (for rollback)
+   * @returns True if remote branch exists and was fetched successfully
+   */
+  private fetchAndValidateRemoteBranch(branchName: string, remoteName: string, pushedStash: boolean): boolean {
+    // Fetch only the target branch to reduce overhead
+    const fetchResult = this.executeGitCommand(
+      `git fetch ${remoteName} "${branchName}":"refs/remotes/${remoteName}/${branchName}" --prune`,
+      'Fetching target branch'
+    );
+
+    if (!fetchResult.success) {
+      this.logger.error(`Remote branch ${remoteName}/${branchName} does not exist or fetch failed.`);
+      this.rollbackStash(pushedStash);
+      return false;
+    }
+
+    // Double-check remote branch existence for safety
+    const remoteProbe = this.executeGitCommand(
+      `git ls-remote --heads ${remoteName} "${branchName}"`
+    ).output;
+
+    if (!remoteProbe) {
+      this.logger.error(`Remote branch not found: ${remoteName}/${branchName}.`);
+      this.rollbackStash(pushedStash);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Checks if local branch exists.
+   * @param branchName The branch name to check
+   * @returns True if local branch exists
+   */
+  private checkLocalBranchExists(branchName: string): boolean {
+    return this.executeGitCommand(`git rev-parse --verify --quiet "${branchName}"`).success;
+  }
+
+  /**
+   * Checkouts to existing local branch and attempts fast-forward.
+   * @param branchName The branch name to checkout
+   * @param remoteName The remote name to use
+   * @param pushedStash Whether stash was pushed (for rollback)
+   */
+  private checkoutExistingBranch(branchName: string, remoteName: string, pushedStash: boolean): void {
+    const checkoutResult = this.executeGitCommand(
+      `git checkout "${branchName}"`,
+      `Switching to local branch ${branchName}`
+    );
+
+    if (!checkoutResult.success) {
+      this.rollbackStash(pushedStash);
+      return;
+    }
+
+    // Attempt safe fast-forward to remote (no merge commits)
+    const fastForwardResult = this.executeGitCommand(
+      `git merge --ff-only "${remoteName}/${branchName}"`,
+      'Fast-forwarding to remote'
+    );
+
+    if (!fastForwardResult.success) {
+      this.logger.warn(
+        `Unable to fast-forward to ${remoteName}/${branchName} (local branch may have additional commits). ` +
+        `Current commit preserved. To discard local divergence, manually run: git reset --hard ${remoteName}/${branchName}`
+      );
+    }
+  }
+
+  /**
+   * Creates a new tracking branch from remote.
+   * @param branchName The branch name to create
+   * @param remoteName The remote name to use
+   * @param pushedStash Whether stash was pushed (for rollback)
+   */
+  private createTrackingBranch(branchName: string, remoteName: string, pushedStash: boolean): void {
+    const createResult = this.executeGitCommand(
+      `git checkout -b "${branchName}" "${remoteName}/${branchName}"`,
+      `Creating local tracking branch ${branchName}`
+    );
+
+    if (!createResult.success) {
+      this.rollbackStash(pushedStash);
+    }
+  }
+
+  /**
+   * Restores working directory changes from stash if applicable.
+   * @param pushedStash Whether stash was pushed
+   */
+  private restoreWorkingDirectoryChanges(pushedStash: boolean): void {
+    if (!pushedStash) return;
+
+    const popResult = this.executeGitCommand(
+      'git stash pop',
+      'Restoring previous changes (stash pop)'
+    );
+
+    if (!popResult.success) {
+      this.logger.warn(
+        'Conflicts may have occurred during stash pop. Please resolve conflicts manually and commit. ' +
+        'Conflicted files have been marked.'
+      );
+    }
+  }
+
+  /**
+   * Logs the completion of checkout operation.
+   * @param previousHead The previous HEAD commit hash
+   * @param branchName The target branch name
+   */
+  private logCheckoutCompletion(previousHead: string, branchName: string): void {
+    const newHead = this.executeGitCommand('git rev-parse --short=12 HEAD').output;
+    this.logger.info(
+      `Checkout completed: ${previousHead || '(unknown)'} → ${newHead} @ ${branchName}`
+    );
+  }
+
+  /**
+   * Rolls back stash if it was pushed.
+   * @param pushedStash Whether stash was pushed
+   */
+  private rollbackStash(pushedStash: boolean): void {
+    if (pushedStash) {
+      this.executeGitCommand('git stash pop', 'Rollback: restoring stash');
+    }
+  }
+
+
+  /**
+   * Executes a git command and returns structured result.
+   * @param command The git command to execute
+   * @param description Optional description for logging
+   * @returns Object containing success status and output
+   */
+  private executeGitCommand(command: string, description?: string): {success: boolean; output: string} {
+    try {
+      const output = this.shell.run(command);
+      if (description) {
+        this.logger.debug(`${description} ✓`);
+      }
+      return {success: true, output: (output ?? '').toString().trim()};
+    } catch (error: unknown) {
+      if (description) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`${description} ✗: ${errorMessage}`);
+      }
+      return {success: false, output: ''};
+    }
+  }
+
   getUserName(): string {
     return StringUtil.sanitizeName(this.shell.run("git config user.name"));
   }
@@ -154,7 +382,7 @@ ${escapedMessage}
   }
 
   /**
-   * Push current branch to origin
+   * Push current branch to remote
    * @param branchName Branch name to push
    */
   push(branchName: string): void {
@@ -189,16 +417,55 @@ ${escapedMessage}
   }
 
   /**
-   * Get remote name (usually 'origin')
+   * Gets the default remote name for the current repository.
+   * Tries to detect the most appropriate remote in the following order:
+   * 1. 'origin' (most common)
+   * 2. 'upstream' (common in fork workflows)  
+   * 3. First available remote
+   * @returns The default remote name or 'origin' as fallback
    */
   getRemoteName(): string {
-    if(this.remote_name) {
+    if (this.remote_name) {
       return this.remote_name;
     }
-    const remotes = this.shell.run("git remote").trim();
-    const remote_name = (remotes.split('\n').filter(Boolean)[0] || '').trim();
-    this.remote_name = remote_name;
-    return remote_name;
+
+    try {
+      const remotesOutput = this.shell.run('git remote').trim();
+      if (!remotesOutput) {
+        this.logger.warn('No remotes found, using "origin" as fallback');
+        this.remote_name = 'origin';
+        return this.remote_name;
+      }
+
+      const remotes = remotesOutput.split('\n').map(r => r.trim()).filter(r => r);
+      
+      // Prefer 'origin' if it exists
+      if (remotes.includes('origin')) {
+        this.remote_name = 'origin';
+        return this.remote_name;
+      }
+      
+      // Fall back to 'upstream' if it exists
+      if (remotes.includes('upstream')) {
+        this.remote_name = 'upstream';
+        this.logger.debug('Using "upstream" as default remote');
+        return this.remote_name;
+      }
+      
+      // Use the first available remote
+      if (remotes.length > 0) {
+        this.remote_name = remotes[0];
+        this.logger.debug(`Using "${this.remote_name}" as default remote`);
+        return this.remote_name;
+      }
+      
+    } catch (error) {
+      this.logger.warn('Failed to detect remotes, using "origin" as fallback');
+    }
+    
+    // Final fallback
+    this.remote_name = 'origin';
+    return this.remote_name;
   }
 
   /**
