@@ -4,6 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { Shell } from '../shell.js';
 import { logger } from '../logger.js';
+import semverCompare from 'semver-compare';
 
 /**
  * Interface for update cache data
@@ -203,7 +204,7 @@ export class UpdateChecker {
       const cache = this.loadCache();
       cache.lastCheckTime = Date.now();
 
-      if (notifier.update) {
+      if (notifier.update && semverCompare(notifier.update.latest, this.packageJson.version) === 1) {
         logger.info(`📦 Update available: ${this.packageJson.version} → ${notifier.update.latest}`);
 
         // Store the latest version in cache
