@@ -5,6 +5,7 @@ import yaml from 'js-yaml';
 import readline from 'readline';
 import { config as dotenvConfig } from 'dotenv';
 import { fileURLToPath } from 'url';
+import { logger } from './logger.js';
 
 /**
  * Get cross-platform user data directory for global config
@@ -384,7 +385,7 @@ export class ConfigLoader {
     // Report missing optional configurations
     for (const { path, name, description } of optionalConfigs) {
       if (!this.getNestedValue(config, path)) {
-        console.log(`ℹ️  Optional configuration not set: ${name} - ${description}`);
+        logger.info(`ℹ️  Optional configuration not set: ${name} - ${description}`);
       }
     }
   }
@@ -411,11 +412,11 @@ export class ConfigLoader {
    * Print configuration sources for debugging
    */
   printConfigSources(config: LoadedConfig): void {
-    console.log('\n📋 Configuration Sources:');
+    logger.info('\n📋 Configuration Sources:');
     for (const [key, source] of config._sources.entries()) {
       const sourceName = source.source.toUpperCase();
       const sourcePath = source.path ? ` (${source.path})` : '';
-      console.log(`  ${key}: ${sourceName}${sourcePath}`);
+      logger.info(`  ${key}: ${sourceName}${sourcePath}`);
     }
   }
 
@@ -528,7 +529,7 @@ merge_request:
 `;
 
     fs.writeFileSync(localConfigPath, yamlContent);
-    console.log(`📝 Created example config: ${localConfigPath}`);
+    logger.info(`📝 Created example config: ${localConfigPath}`);
 
     // Create global example config
     const globalConfigDir = path.join(this.getUserDataDir(), ConfigLoader.GLOBAL_CONFIG_DIR);
@@ -539,7 +540,7 @@ merge_request:
     }
 
     fs.writeFileSync(globalExamplePath, yamlContent);
-    console.log(`📝 Created global example config: ${globalExamplePath}`);
+    logger.info(`📝 Created global example config: ${globalExamplePath}`);
   }
 }
 
