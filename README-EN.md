@@ -1,6 +1,6 @@
 # AIFlow
 
-🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.
+🚀 An AI-powered workflow automation tool for effortless Git-based development, combining smart GitLab/GitHub merge & pull request creation with Conan package management.
 
 📖 English | **[中文](README.md)**
 

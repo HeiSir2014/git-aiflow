@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
 import readline from 'readline';
 import { logger } from './logger.js';
+import { readFileSync } from 'fs';
 /**
  * Base class for AI-powered Git automation applications
  */
@@ -627,6 +628,30 @@ export class GitAutoMrApp extends BaseAiflowApp {
 
 
   /**
+   * Display version information
+   */
+  static showVersion(): void {
+    const packageJson = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
+    const version = packageJson.version;
+    const name = packageJson.name;
+    const description = packageJson.description;
+    
+    logger.info(`
+🚀 ${name} v${version}
+
+${description}
+
+📦 Package: ${name}
+🔢 Version: ${version}
+📅 Built: ${new Date().toISOString().split('T')[0]}
+🌐 Repository: https://github.com/HeiSir2014/git-aiflow
+📋 License: MIT
+
+💡 For more information, visit: https://github.com/HeiSir2014/git-aiflow
+`);
+  }
+
+  /**
    * Display usage information
    */
   static showUsage(): void {
@@ -641,6 +666,7 @@ Commands:
   init --global, -g      初始化全局配置
   
 Options:
+  --version, -v          显示版本信息
   --config-help          显示 CLI 配置选项帮助
   --help, -h             显示此帮助信息
   
@@ -700,21 +726,17 @@ Examples:
    */
   static async main(): Promise<void> {
     const args = process.argv.slice(2);
-
-    // Check for updates at startup (for global installations only)
-    try {
-      const updateChecker = new UpdateChecker();
-      await updateChecker.checkAndUpdate();
-    } catch (error) {
-      // Don't let update check failures block the main application
-      logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
-    }
-
     // Handle init command
     if (args.includes('init')) {
       const isGlobal = args.includes('--global') || args.includes('-g');
       await initConfig(isGlobal);
       return;
+    }
+
+    // Show version information
+    if (args.includes('--version') || args.includes('-v')) {
+      GitAutoMrApp.showVersion();
+      process.exit(0);
     }
 
     // Show CLI help
@@ -727,6 +749,15 @@ Examples:
     if (args.includes('--help') || args.includes('-h')) {
       GitAutoMrApp.showUsage();
       process.exit(0);
+    }
+
+    // Check for updates at startup (for global installations only)
+    try {
+      const updateChecker = new UpdateChecker();
+      await updateChecker.checkAndUpdate();
+    } catch (error) {
+      // Don't let update check failures block the main application
+      logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
     }
 
     // Check for commit-only mode early (before config validation)

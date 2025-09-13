@@ -34,7 +34,7 @@ on:
 
 #### 2. **Multi-Platform Testing**
 - **操作系统**: Ubuntu, Windows, macOS
-- **Node.js 版本**: 18, 20, 22
+- **Node.js 版本**: 22
 - **测试内容**:
   - 项目构建验证
   - 基础功能测试
@@ -84,7 +84,7 @@ on:
 - 构建完整性验证
 
 #### 2. **多平台构建** (`build-release-artifacts`)
-- **矩阵构建**: Ubuntu/Windows/macOS × Node.js 18/20/22
+- **矩阵构建**: Ubuntu/Windows/macOS × Node.js 22
 - 版本号更新
 - 包安装测试
 - CLI 功能验证
