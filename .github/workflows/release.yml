@@ -428,7 +428,7 @@ jobs:
               repo: context.repo.repo,
               title: `🔄 Sync package.json version to ${{ needs.validate-release.outputs.version }}`,
               head: `sync-version-${{ needs.validate-release.outputs.version }}`,
-              base: 'main',
+              base: 'master',
               body: `## 📦 Version Synchronization
 
               This PR automatically syncs the \`package.json\` version to match the release tag.

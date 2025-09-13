@@ -2,7 +2,7 @@ name: Update Changelog
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'package.json'
   workflow_dispatch:
@@ -196,7 +196,7 @@ jobs:
               repo: context.repo.repo,
               title: `📝 Update CHANGELOG.md for version ${{ steps.version.outputs.version }}`,
               head: `changelog-update-${{ steps.version.outputs.version }}`,
-              base: 'main',
+              base: 'master',
               body: `## 📝 Changelog Update
 
               This PR automatically updates the CHANGELOG.md file for version ${{ steps.version.outputs.version }}.
