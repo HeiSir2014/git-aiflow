@@ -175,13 +175,18 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Ensure docs directory structure
+        run: |
+          echo "📁 Ensuring docs directory structure"
+          echo "==================================="
+          
+          # Create docs directory structure
+          mkdir -p docs/api docs/cli docs/workflows
+
       - name: Generate API documentation
         run: |
           echo "📖 Generating API Documentation"
           echo "=============================="
-          
-          # Create docs directory
-          mkdir -p docs/api
           
           # Generate TypeDoc documentation
           typedoc src/index.ts \
@@ -199,8 +204,6 @@ jobs:
         run: |
           echo "⌨️ Generating CLI Documentation"
           echo "=============================="
-          
-          mkdir -p docs/cli
           
           # Generate CLI help documentation
           echo "# AIFlow CLI Documentation" > docs/cli/README.md
@@ -236,8 +239,6 @@ jobs:
         run: |
           echo "🔄 Generating Workflow Documentation"
           echo "=================================="
-          
-          mkdir -p docs/workflows
           
           cat << 'EOF' > docs/workflows/README.md
           # GitHub Actions Workflows
@@ -343,50 +344,22 @@ jobs:
           Artifacts are retained for 7-30 days depending on the workflow.
           EOF
 
-      - name: Create documentation index
+      - name: Update documentation index
         run: |
-          echo "📑 Creating Documentation Index"
+          echo "📑 Updating Documentation Index"
           echo "=============================="
           
-          cat << 'EOF' > docs/README.md
-          # AIFlow Documentation
+          # Get current version from package.json
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $VERSION"
+
+          # Update index.html using template with dynamic version
+          echo "Updating docs/index.html with version $VERSION using template..."
           
-          Welcome to the AIFlow documentation. This directory contains comprehensive documentation for the AIFlow project.
+          # Use sed to replace version in template
+          sed "s/v{{VERSION}}/v$VERSION/g" docs/template.html > docs/index.html
           
-          ## Documentation Structure
-          
-          - **[API Documentation](api/)**: Generated TypeScript API documentation
-          - **[CLI Documentation](cli/)**: Command-line interface documentation
-          - **[Workflow Documentation](workflows/)**: GitHub Actions workflows guide
-          
-          ## Quick Links
-          
-          - [Main README](../README.md) - Project overview and usage
-          - [English README](../README-EN.md) - English version
-          - [Configuration Example](../config.example.yaml) - Example configuration
-          - [License](../LICENSE) - Project license
-          
-          ## Development Documentation
-          
-          For developers working on AIFlow:
-          
-          1. **Getting Started**: See the master README for setup instructions
-          2. **API Reference**: Check the [API documentation](api/) for detailed type information
-          3. **CLI Usage**: Refer to [CLI documentation](cli/) for command details
-          4. **Contributing**: See GitHub Actions [workflows](workflows/) for CI/CD information
-          
-          ## Support
-          
-          If you need help:
-          
-          1. Check the [troubleshooting section](../README.md#故障排除) in the master README
-          2. Search existing [issues](https://github.com/HeiSir2014/git-aiflow/issues)
-          3. Create a new [issue](https://github.com/HeiSir2014/git-aiflow/issues/new)
-          
-          ## Last Updated
-          
-          This documentation was last updated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          EOF
+          echo "✅ Generated docs/index.html from template with version $VERSION"
 
       - name: Upload documentation artifacts
         uses: actions/upload-artifact@v4
