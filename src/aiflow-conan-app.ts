@@ -80,10 +80,11 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
 
       // Step 4: Generate commit message and branch name using AI
       logger.info(`🤖 Generating commit message and branch name...`);
-      const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
-      logger.info("✅ Generated commit message:", commit);
-      logger.info("✅ Generated branch suggestion:", branch);
-      logger.info("✅ Generated MR description:", description);
+      const { commit, branch, description, title } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+      logger.info(`✅ Generated commit message length: ${commit && commit.length}`);
+      logger.info(`✅ Generated branch suggestion: ${branch}`);
+      logger.info(`✅ Generated MR description length: ${description && description.length}`);
+      logger.info(`✅ Generated MR title: ${title}`);
 
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
@@ -91,11 +92,11 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
       const branchName = `${gitUser}/conan-update-${packageName}-${aiBranch}-${dateSuffix}`;
 
-      logger.info("✅ Generated branch name:", branchName);
+      logger.info(`✅ Generated branch name: ${branchName}`);
 
       // Step 6: Commit changes
-      const enhancedCommit = `chore: update ${packageName} package\n\n${commit}`;
-      logger.info("✅ Generated commit message:", enhancedCommit);
+      const enhancedCommit = commit;
+      logger.info(`✅ Generated commit message: ${enhancedCommit}`);
 
       // Dynamic countdown before committing and pushing
       await ColorUtil.countdown(3, `Creating branch(${branchName}) and pushing`, 'Committing now...');
@@ -135,7 +136,7 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
         mergeRequestOptions.reviewer_ids = reviewerIds;
       }
 
-      const mrTitle = `chore: update ${packageName} package to latest version`;
+      const mrTitle = title;
 
       // Dynamic countdown before creating MR
       await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
@@ -161,6 +162,7 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
           branchName,
           targetBranch,
           mrUrl,
+          mrTitle,
           enhancedCommit,
           changedFiles
         );

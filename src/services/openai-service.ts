@@ -277,7 +277,8 @@ ACCURACY REQUIREMENTS:
       return {
         commit: content.commit,
         branch: content.branch,
-        description: content.description || ''
+        description: content.description || '',
+        title: content.title || content.commit.replace(/\r|\n/g, '').trim().substring(0, 50)
       } as CommitGenerationResult;
     } catch (error) {
       logger.error("Failed to parse AI response:", cleanContent);

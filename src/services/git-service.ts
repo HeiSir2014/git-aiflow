@@ -144,7 +144,8 @@ export class GitService {
    * @returns True if local branch exists
    */
   private checkLocalBranchExists(branchName: string): boolean {
-    return this.executeGitCommand(`git rev-parse --verify --quiet "${branchName}"`).success;
+    const result = this.executeGitCommand(`git rev-parse --verify --quiet "${branchName}"`);
+    return result.success && result.output.trim() !== '';
   }
 
   /**
@@ -412,10 +413,15 @@ ${escapedMessage}
    * @param branch Branch name
    * @param message Commit message
    */
-  commitAndPush(branch: string, message: string): void {
+  commitAndPush(branch: string, message: string): boolean {
+    if (this.checkLocalBranchExists(branch)) {
+      logger.info(`Branch ${branch} already exists, skipping creation`);
+      return false;
+    }
     this.createBranch(branch);
     this.commit(message);
     this.push(branch);
+    return true;
   }
 
   getChangedFiles(limit?: number): string[] {
