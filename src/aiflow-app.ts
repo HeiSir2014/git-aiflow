@@ -382,14 +382,15 @@ export abstract class BaseAiflowApp {
 
     // Step 5: Generate commit message and branch name using AI
     logger.info(`🤖 Generating commit message and branch name...`);
-    const { commit, branch, description } = await this.openai.generateCommitAndBranch(baseToCurrentDiff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+    const { commit, branch, description, title } = await this.openai.generateCommitAndBranch(baseToCurrentDiff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
-    logger.info("✅ Generated commit message:", commit);
-    logger.info("✅ Generated branch suggestion:", branch);
-    logger.info("✅ Generated MR description:", description);
+    logger.info(`✅ Generated commit message length: ${commit && commit.length}`);
+    logger.info(`✅ Generated branch suggestion: ${branch}`);
+    logger.info(`✅ Generated MR description length: ${description && description.length}`);
+    logger.info(`✅ Generated MR title: ${title}`);
 
     const branchName = currentBranch;
-    logger.info("✅ Using branch name:", branchName);
+    logger.info(`✅ Using branch name: ${branchName}`);
 
     await ColorUtil.countdown(3, `Pushing branch(${branchName})`, 'Pushing branch now...');
     this.git.push(branchName);
@@ -425,11 +426,12 @@ export abstract class BaseAiflowApp {
 
     // Dynamic countdown before creating MR
     await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
-    
+
+    const mrTitle = title;
     const mrUrl = await this.gitPlatform.createMergeRequest(
       branchName,
       baseBranch,
-      commit,
+      mrTitle,
       mergeRequestOptions
     );
     logger.info(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
@@ -437,7 +439,7 @@ export abstract class BaseAiflowApp {
     // Step 9: Send notification
     if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
       logger.info(`📢 Sending notification...`);
-      await this.wecom.sendMergeRequestNotice(branchName, baseBranch, mrUrl, commit, changedFiles);
+      await this.wecom.sendMergeRequestNotice(branchName, baseBranch, mrUrl, mrTitle, commit, changedFiles);
       logger.info("📢 Notification sent via WeCom webhook.");
     }
 
@@ -449,7 +451,7 @@ export abstract class BaseAiflowApp {
     const requestAbbr = isGitHub ? 'PR' : 'MR';
 
     const outputMrInfo = `🎉 ${requestType}创建成功
-📋 ${requestAbbr} 链接: ${mrUrl}
+📋 ${requestAbbr} 链接: ${mrUrl} ${mrTitle}
 📝 提交信息:
 ${commit}
 🌿 分支信息: ${branchName} ->  ${baseBranch}
@@ -519,17 +521,18 @@ ${'-'.repeat(50)}
 
       // Step 3: Generate commit message and branch name using AI
       logger.info(`🤖 Generating commit message and branch name...`);
-      const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
+      const { commit, branch, description, title } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
 
-      logger.info("✅ Generated commit message:", commit);
-      logger.info("✅ Generated branch suggestion:", branch);
-      logger.info("✅ Generated MR description:", description);
+      logger.info(`✅ Generated commit message length: ${commit && commit.length}`);
+      logger.info(`✅ Generated branch suggestion: ${branch}`);
+      logger.info(`✅ Generated MR description length: ${description && description.length}`);
+      logger.info(`✅ Generated MR title: ${title}`);
 
       // Step 4: Create branch name
       const gitUser = this.git.getUserName();
       const aiBranch = StringUtil.sanitizeBranch(branch);
       const branchName = `${gitUser}/${aiBranch}-${this.git.getShortCommit()}`;
-      logger.info("✅ Generated branch name:", branchName);
+      logger.info(`✅ Generated branch name: ${branchName}`);
 
       // Step 5: Commit and push
       logger.info(`📤 Creating branch and pushing changes...`);
@@ -569,10 +572,11 @@ ${'-'.repeat(50)}
       // Dynamic countdown before creating MR
       await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
       
+      const mrTitle = title;
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
-        commit,
+        mrTitle,
         mergeRequestOptions
       );
       logger.info(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
@@ -586,7 +590,7 @@ ${'-'.repeat(50)}
       // Step 7: Send notification
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
         logger.info(`📢 Sending notification...`);
-        await this.wecom.sendMergeRequestNotice(branchName, targetBranch, mrUrl, commit, changedFiles);
+        await this.wecom.sendMergeRequestNotice(branchName, targetBranch, mrUrl, mrTitle, commit, changedFiles);
         logger.info("📢 Notification sent via WeCom webhook.");
       }
 
@@ -599,7 +603,7 @@ ${'-'.repeat(50)}
       const requestAbbr = isGitHub ? 'PR' : 'MR';
 
       const outputMrInfo = `🎉 ${requestType}创建成功
-📋 ${requestAbbr} 链接: ${mrUrl}
+📋 ${requestAbbr} 链接: ${mrUrl} ${mrTitle}
 📝 提交信息:
 ${commit}
 🌿 分支信息: ${branchName} ->  ${targetBranch}

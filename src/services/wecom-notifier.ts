@@ -18,6 +18,7 @@ export class WecomNotifier {
     branch: string,
     target: string,
     mrUrl: string,
+    title: string,
     commitMsg: string,
     changedFiles: string[],
     mentionedMobileList?: string[],
@@ -29,6 +30,7 @@ export class WecomNotifier {
 
     const md = `🎉 **合并请求已创建，请及时进行代码审查！**
 📋 **MR链接**: [点击查看](${mrUrl}) \`${mrUrl}\`
+📝 **MR标题**: ${title}
 🌿 **分支信息**: ${branch} → ${target}
 📝 **提交信息**:
 \`\`\`
