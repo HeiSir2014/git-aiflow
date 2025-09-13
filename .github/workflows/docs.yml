@@ -329,7 +329,7 @@ jobs:
           
           Required secrets for workflows:
           - `NPM_TOKEN`: For NPM publishing (release workflow)
-          - `GITHUB_TOKEN`: Automatically provided by GitHub
+          - `ACCESS_TOKEN`: Automatically provided by GitHub
           
           ## Workflow Artifacts
           

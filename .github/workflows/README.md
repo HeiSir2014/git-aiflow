@@ -299,7 +299,7 @@ on:
 NPM_TOKEN=npm_xxxxxxxxxxxxxxxx
 
 # GitHub Token (自动提供)
-GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+ACCESS_TOKEN=ghp_xxxxxxxxxxxx
 ```
 
 ### CodeQL 配置
@@ -383,7 +383,7 @@ permissions:
 
 #### 4. **权限错误**
 ```bash
-# 检查 GITHUB_TOKEN 权限
+# 检查 ACCESS_TOKEN 权限
 # 验证分支保护规则
 # 确认 Secrets 配置
 ```
