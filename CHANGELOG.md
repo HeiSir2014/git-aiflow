@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.21] - 2025-09-13
+
+### Added
+- Release version 1.0.21
+
+### Changed
+- Updated package version to 1.0.21
+
+### Fixed
+- Version synchronization between package.json and release tag
+
+
 ### Added
 - 自动版本同步功能：当 release 版本与 package.json 不匹配时自动创建 PR
 - CHANGELOG.md 文件维护项目变更历史
