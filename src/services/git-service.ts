@@ -265,7 +265,7 @@ export class GitService {
   }
 
   getDiff(): string {
-    return this.shell.run("git diff --cached");
+    return this.shell.run("git diff --cached --text");
   }
 
   /**
@@ -279,7 +279,7 @@ export class GitService {
     }
 
     const files = filePaths.join(' ');
-    return this.shell.run(`git diff ${files}`).trim();
+    return this.shell.run(`git diff --text ${files}`).trim();
   }
 
   /**
@@ -295,7 +295,7 @@ export class GitService {
         return '';
       }
 
-      const diffOutput = this.shell.run(`git diff ${baseBranch}...${targetBranch}`).trim();
+      const diffOutput = this.shell.run(`git diff --text ${baseBranch}...${targetBranch}`).trim();
       logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
       return diffOutput;
     } catch (error) {
