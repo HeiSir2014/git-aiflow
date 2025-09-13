@@ -112,9 +112,9 @@ export class GitService {
    * @returns True if remote branch exists and was fetched successfully
    */
   private fetchAndValidateRemoteBranch(branchName: string, remoteName: string, pushedStash: boolean): boolean {
-    // Fetch only the target branch to reduce overhead
+    // Fetch only the target branch to reduce overhead (removed --prune to avoid deleting other remote tracking branches)
     const fetchResult = this.executeGitCommand(
-      `git fetch ${remoteName} "${branchName}":"refs/remotes/${remoteName}/${branchName}" --prune`,
+      `git fetch ${remoteName} "${branchName}":"refs/remotes/${remoteName}/${branchName}"`,
       'Fetching target branch'
     );
 
@@ -161,6 +161,24 @@ export class GitService {
 
     if (!checkoutResult.success) {
       this.rollbackStash(pushedStash);
+      return;
+    }
+
+    // Check if remote branch still exists before attempting merge
+    const remoteBranchExists = this.executeGitCommand(
+      `git ls-remote --heads ${remoteName} "${branchName}"`
+    );
+
+    if (!remoteBranchExists.success || !remoteBranchExists.output.trim()) {
+      logger.warn(`Remote branch ${remoteName}/${branchName} does not exist. Unset upstream tracking.`);
+      
+      // Unset upstream tracking to avoid "upstream branch does not exist" warnings
+      this.executeGitCommand(
+        `git branch --unset-upstream`,
+        'Unsetting upstream tracking'
+      );
+      
+      logger.info(`Checked out to local branch ${branchName} without remote tracking.`);
       return;
     }
 
