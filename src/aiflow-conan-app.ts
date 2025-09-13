@@ -6,10 +6,13 @@ import { StringUtil } from './utils/string-util.js';
 import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
 import { UpdateChecker } from './utils/update-checker.js';
+import { ColorUtil } from './utils/color-util.js';
 import { parseCliArgs, getConfigValue, getCliHelp, initConfig } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboardy from 'clipboardy';
+import { readFileSync } from 'fs';
+import { logger } from './logger.js';
 /**
  * Conan package update application with automated MR creation
  */
@@ -40,17 +43,20 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
    * @param remote
    */
   async updatePackage(packageName: string, remote: string = "repo"): Promise<void> {
-    console.log(`🚀 Starting Conan package update for: ${packageName}`);
-    console.log(`📦 Remote repository: ${remote}`);
-    console.log(`📁 Working directory: ${process.cwd()}`);
+    logger.info(`🚀 AIFlow Conan Tool - Package Update`);
+    logger.info(`📦 Package: ${packageName}`);
+    logger.info(`🌐 Remote: ${remote}`);
+    logger.info(`📁 Working directory: ${process.cwd()}`);
+    logger.info(`⏰ Started at: ${new Date().toISOString()}`);
+    logger.info('─'.repeat(50));
 
     try {
       // Step 1: Update package files and check for changes
-      console.log(`📦 Updating package ${packageName} from remote ${remote}...`);
+      logger.info(`📦 Updating package ${packageName} from remote ${remote}...`);
       const completeInfo = await this.fileUpdater.updatePackage(remote, packageName);
 
       if (!completeInfo) {
-        console.log(`✅ Package ${packageName} is already up to date. No MR needed.`);
+        logger.info(`✅ Package ${packageName} is already up to date. No MR needed.`);
         return;
       }
 
@@ -60,20 +66,24 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
 
       const diff = this.git.getDiff();
       if (!diff) {
-        console.log(`⚠️  No changes detected in files after update. Skipping MR creation.`);
+        logger.info(`⚠️  No changes detected in files after update. Skipping MR creation.`);
         return;
       }
 
       const changedFiles = this.git.getChangedFiles();
 
-      // Step 3: Determine target branch
+      // Step 3: Determine target branch and current branch
+      const currentBranch = this.git.getCurrentBranch();
       const targetBranch = this.git.getTargetBranch();
-      console.log(`🎯 Target branch: ${targetBranch}`);
+      logger.info(`🌿 Current branch: ${currentBranch}`);
+      logger.info(`🎯 Target branch: ${targetBranch}`);
 
       // Step 4: Generate commit message and branch name using AI
-      console.log(`🤖 Generating commit message and branch name...`);
+      logger.info(`🤖 Generating commit message and branch name...`);
       const { commit, branch, description } = await this.openai.generateCommitAndBranch(diff, getConfigValue(this.config, 'git.generation_lang', 'en'));
-      console.log("✅ Generated MR description:", description);
+      logger.info("✅ Generated commit message:", commit);
+      logger.info("✅ Generated branch suggestion:", branch);
+      logger.info("✅ Generated MR description:", description);
 
       // Step 5: Create new branch
       const gitUser = this.git.getUserName();
@@ -81,24 +91,26 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const dateSuffix = new Date().toISOString().slice(0, 19).replace(/-|T|:/g, "");
       const branchName = `${gitUser}/conan-update-${packageName}-${aiBranch}-${dateSuffix}`;
 
-      console.log("✅ Generated branch name:", branchName);
-      this.git.createBranch(branchName);
+      logger.info("✅ Generated branch name:", branchName);
 
       // Step 6: Commit changes
       const enhancedCommit = `chore: update ${packageName} package\n\n${commit}`;
-      console.log("✅ Generated commit message:", enhancedCommit);
+      logger.info("✅ Generated commit message:", enhancedCommit);
 
+      // Dynamic countdown before committing and pushing
+      await ColorUtil.countdown(3, `Creating branch(${branchName}) and pushing`, 'Committing now...');
+      this.git.createBranch(branchName);
       this.git.commit(enhancedCommit);
 
       // Step 7: Push branch to remote
-      console.log(`📤 Pushing branch to remote...`);
+      logger.info(`📤 Pushing branch to remote...`);
       this.git.push(branchName);
 
       // Step 8: Create Merge Request
-      console.log(`📋 Creating Merge Request...`);
+      logger.info(`📋 Creating Merge Request...`);
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
-      
+
       // Get merge request configuration
       const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
       const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
@@ -114,27 +126,37 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       if (typeof assigneeId === 'number' && assigneeId > 0) {
         mergeRequestOptions.assignee_id = assigneeId;
       }
-      
+
       if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
         mergeRequestOptions.assignee_ids = assigneeIds;
       }
-      
+
       if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
         mergeRequestOptions.reviewer_ids = reviewerIds;
       }
 
       const mrTitle = `chore: update ${packageName} package to latest version`;
+
+      // Dynamic countdown before creating MR
+      await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
+
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
         targetBranch,
         mrTitle,
         mergeRequestOptions
       );
-      console.log(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
+      logger.info(`🎉 ${this.gitPlatform.getPlatformName() === 'github' ? 'Pull Request' : 'Merge Request'} created:`, mrUrl);
 
-      // Step 9: Send notification
-      console.log(`📢 Sending notification...`);
+      // Step 9: Switch back to original branch if different
+      if (currentBranch && currentBranch !== branchName) {
+        logger.info(`✅ Auto checkout to ${currentBranch}`);
+        this.git.checkout(currentBranch);
+      }
+
+      // Step 10: Send notification
       if (getConfigValue(this.config, 'wecom.enable', false) && getConfigValue(this.config, 'wecom.webhook', '')) {
+        logger.info(`📢 Sending notification...`);
         await this.wecom.sendMergeRequestNotice(
           branchName,
           targetBranch,
@@ -142,14 +164,17 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
           enhancedCommit,
           changedFiles
         );
-        console.log("📢 Notification sent via WeCom webhook.");
+        logger.info("📢 Notification sent via WeCom webhook.");
       }
 
+      logger.info(`✅ AIFlow Conan workflow completed successfully!`);
+
+      // Step 11: Print the MR info and copy to clipboard
       // Format MR information for sharing
       const isGitHub = this.gitPlatform.getPlatformName() === 'github';
       const requestType = isGitHub ? 'Pull Request' : 'Merge Request';
       const requestAbbr = isGitHub ? 'PR' : 'MR';
-      
+
       const outputMrInfo = `🎉 Conan - ${packageName} 包更新${requestType}创建成功！
 📋 ${requestAbbr} 链接: ${mrUrl}
 🌿 分支信息: ${branchName} ->  ${targetBranch}
@@ -162,13 +187,12 @@ ${'-'.repeat(50)}
 ${outputMrInfo}
 ${'-'.repeat(50)}
 `;
-      console.log(consoleMrInfo);
+      logger.info(consoleMrInfo);
       await clipboardy.write(outputMrInfo);
-
-      console.log(`✅ Conan package update workflow completed successfully!`);
+      logger.info("📋 MR info copied to clipboard.");
 
     } catch (error) {
-      console.error(`❌ Error during package update:`, error);
+      logger.error(`❌ Error during package update:`, error);
       process.exit(1);
     }
   }
@@ -183,17 +207,41 @@ ${'-'.repeat(50)}
     // Additional Conan-specific validation
     const conanBaseUrl = getConfigValue(this.config, 'conan.remoteBaseUrl', '');
     if (!conanBaseUrl) {
-      console.warn(`⚠️  Conan remote base URL not configured. Some features may not work.`);
+      logger.warn(`⚠️  Conan remote base URL not configured. Some features may not work.`);
     }
 
-    console.log(`✅ Conan configuration validation passed`);
+    logger.info(`✅ Conan configuration validation passed`);
+  }
+
+  /**
+   * Display version information
+   */
+  static showVersion(): void {
+    const packageJson = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
+    const version = packageJson.version;
+    const name = packageJson.name;
+    const description = packageJson.description;
+    
+    logger.info(`
+🚀 ${name} Conan Tool v${version}
+
+${description}
+
+📦 Package: ${name}
+🔢 Version: ${version}
+📅 Built: ${new Date().toISOString().split('T')[0]}
+🌐 Repository: https://github.com/HeiSir2014/git-aiflow
+📋 License: MIT
+
+💡 For more information, visit: https://github.com/HeiSir2014/git-aiflow
+`);
   }
 
   /**
    * Display usage information
    */
   static showUsage(): void {
-    console.log(`
+    logger.info(`
 🔧 AIFlow Conan Tool
 
 Usage:
@@ -208,6 +256,7 @@ Arguments:
   remote         Conan remote repository name (default: from config or "repo")
 
 Options:
+  --version, -v          显示版本信息
   --config-help          显示 CLI 配置选项帮助
   --help, -h             显示此帮助信息
 
@@ -254,15 +303,6 @@ Files Required:
   static async main(): Promise<void> {
     const args = process.argv.slice(2);
 
-    // Check for updates at startup (for global installations only)
-    try {
-      const updateChecker = new UpdateChecker();
-      await updateChecker.checkAndUpdate();
-    } catch (error) {
-      // Don't let update check failures block the main application
-      console.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
-    }
-
     // Handle init command
     if (args.includes('init')) {
       const isGlobal = args.includes('--global') || args.includes('-g');
@@ -270,9 +310,15 @@ Files Required:
       return;
     }
 
+    // Show version information
+    if (args.includes('--version') || args.includes('-v')) {
+      ConanPkgUpdateApp.showVersion();
+      process.exit(0);
+    }
+
     // Show CLI help
     if (args.includes('--config-help')) {
-      console.log(getCliHelp());
+      logger.info(getCliHelp());
       process.exit(0);
     }
 
@@ -280,6 +326,15 @@ Files Required:
     if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
       ConanPkgUpdateApp.showUsage();
       process.exit(0);
+    }
+
+    // Check for updates at startup (for global installations only)
+    try {
+      const updateChecker = new UpdateChecker();
+      await updateChecker.checkAndUpdate();
+    } catch (error) {
+      // Don't let update check failures block the main application
+      logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
     }
 
     // Parse CLI configuration arguments (filter out package name and remote)
@@ -292,15 +347,15 @@ Files Required:
     const remote = nonConfigArgs[1];
 
     if (!packageName) {
-      console.error('❌ Package name is required');
+      logger.error('❌ Package name is required');
       ConanPkgUpdateApp.showUsage();
       process.exit(1);
     }
 
-    console.log(`🚀 AIFlow Conan Tool`);
-    console.log(`📦 Package: ${packageName}`);
-    console.log(`⏰ Started at: ${new Date().toISOString()}`);
-    console.log('─'.repeat(50));
+    logger.info(`🚀 AIFlow Conan Tool`);
+    logger.info(`📦 Package: ${packageName}`);
+    logger.info(`⏰ Started at: ${new Date().toISOString()}`);
+    logger.info('─'.repeat(50));
 
     const app = new ConanPkgUpdateApp();
 
@@ -312,17 +367,18 @@ Files Required:
 
     // Get remote from config or CLI or default
     const finalRemote = remote || getConfigValue(app.config, 'conan.remoteRepo', 'repo') || 'repo';
-    console.log(`🌐 Remote: ${finalRemote}`);
+    logger.info(`🌐 Remote: ${finalRemote}`);
 
     // Run the update workflow
     await app.updatePackage(packageName, finalRemote);
   }
 }
 
-const isMain = path.basename(fileURLToPath(import.meta.url)).toLowerCase() === path.basename(process.argv[1]).toLowerCase();
-if (isMain) {
-  ConanPkgUpdateApp.main().catch((error) => {
-    console.error('❌ Unhandled error:', error);
-    process.exit(1);
-  });
-}
+// Only run if this file is executed directly
+const run_file = path.basename(process.argv[1]).toLowerCase();
+const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
+const isMain = run_file && (['aiflow-conan', 'git-aiflow-conan', import_file].includes(run_file));
+isMain && ConanPkgUpdateApp.main().catch((error) => {
+  logger.error('❌ Unhandled error:', error);
+  process.exit(1);
+});

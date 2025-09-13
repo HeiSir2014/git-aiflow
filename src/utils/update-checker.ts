@@ -21,7 +21,7 @@ export class UpdateChecker {
   private readonly shell = new Shell();
   private readonly packageJson: any;
   private readonly cacheFilePath: string;
-  private readonly checkIntervalMs = 10 * 60 * 1000; // 10 minutes
+  private readonly checkIntervalMs = 120 * 60 * 1000; // 2 hours
 
   constructor() {
     // Try multiple possible locations for package.json
@@ -142,7 +142,7 @@ export class UpdateChecker {
   }
 
   /**
-   * Check if it's time to check for updates (based on 10-minute interval)
+   * Check if it's time to check for updates
    */
   private shouldCheckForUpdates(): boolean {
     const cache = this.loadCache();
@@ -155,7 +155,7 @@ export class UpdateChecker {
    */
   private async performAutoUpdate(latestVersion: string): Promise<boolean> {
     try {
-      logger.info(`🔄 Updating git-aiflow from ${this.packageJson.version} to ${latestVersion}...`);
+      logger.info(`🔄 Updating from ${this.packageJson.version} to ${latestVersion}...`);
 
       // Run npm install -g git-aiflow@latest
       const result = this.shell.run('npm install -g git-aiflow@latest');

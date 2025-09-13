@@ -26,7 +26,7 @@
 
 ### ✅ 代码质量保证
 - **多平台测试**: Ubuntu, Windows, macOS
-- **多版本兼容**: Node.js 18, 20, 22
+- **多版本兼容**: Node.js 22
 - **TypeScript 严格检查**: 类型安全保证
 - **代码规范**: ESLint + Prettier 风格检查
 

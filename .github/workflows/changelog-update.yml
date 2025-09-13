@@ -1,0 +1,226 @@
+name: Update Changelog
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update changelog for (e.g., 1.0.21)'
+        required: true
+        type: string
+
+jobs:
+  update-changelog:
+    name: Update Changelog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+      - name: Get previous version
+        id: prev-version
+        run: |
+          PREV_VERSION=$(node -p "require('./package.json').version" | sed 's/\([0-9]*\.[0-9]*\.\)[0-9]*/\1/' | sed 's/\.$//')
+          PREV_PATCH=$(node -p "require('./package.json').version" | sed 's/.*\.\([0-9]*\)/\1/')
+          PREV_PATCH=$((PREV_PATCH - 1))
+          PREV_VERSION="${PREV_VERSION}.${PREV_PATCH}"
+          echo "prev_version=${PREV_VERSION}" >> $GITHUB_OUTPUT
+          echo "Previous version: ${PREV_VERSION}"
+
+      - name: Get commits since last version
+        id: commits
+        run: |
+          # Get commits since the previous version
+          COMMITS=$(git log --oneline --grep="feat\|fix\|refactor\|docs\|style\|perf\|test\|chore" --since="$(git log -1 --format=%ai --grep="chore.*version\|chore.*release" --since="2024-01-01" | head -1)" --until="$(date -Iseconds)" --pretty=format:"%h %s" | head -20)
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog entry
+        id: changelog-entry
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          DATE=$(date +%Y-%m-%d)
+          
+          # Create changelog entry
+          cat << EOF > changelog-entry.md
+          ## [${VERSION}] - ${DATE}
+
+          ### Added
+          EOF
+          
+          # Parse commits and categorize them
+          echo "${{ steps.commits.outputs.commits }}" | while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              
+              # Categorize based on commit message prefix
+              if [[ "$COMMIT_MSG" =~ ^feat ]]; then
+                echo "- ${COMMIT_MSG}" >> changelog-entry.md
+              fi
+            fi
+          done
+          
+          echo "" >> changelog-entry.md
+          echo "### Changed" >> changelog-entry.md
+          
+          echo "${{ steps.commits.outputs.commits }}" | while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              
+              if [[ "$COMMIT_MSG" =~ ^(refactor|perf|style) ]]; then
+                echo "- ${COMMIT_MSG}" >> changelog-entry.md
+              fi
+            fi
+          done
+          
+          echo "" >> changelog-entry.md
+          echo "### Fixed" >> changelog-entry.md
+          
+          echo "${{ steps.commits.outputs.commits }}" | while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              
+              if [[ "$COMMIT_MSG" =~ ^fix ]]; then
+                echo "- ${COMMIT_MSG}" >> changelog-entry.md
+              fi
+            fi
+          done
+          
+          echo "" >> changelog-entry.md
+          echo "### Documentation" >> changelog-entry.md
+          
+          echo "${{ steps.commits.outputs.commits }}" | while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              
+              if [[ "$COMMIT_MSG" =~ ^docs ]]; then
+                echo "- ${COMMIT_MSG}" >> changelog-entry.md
+              fi
+            fi
+          done
+
+      - name: Update CHANGELOG.md
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Create a backup
+          cp CHANGELOG.md CHANGELOG.md.backup
+          
+          # Insert new changelog entry after the [Unreleased] section
+          awk '
+          /^## \[Unreleased\]/ {
+            print
+            print ""
+            while ((getline line < "changelog-entry.md") > 0) {
+              print line
+            }
+            close("changelog-entry.md")
+            print ""
+            next
+          }
+          { print }
+          ' CHANGELOG.md.backup > CHANGELOG.md
+          
+          # Clean up
+          rm CHANGELOG.md.backup changelog-entry.md
+
+      - name: Check if CHANGELOG.md was modified
+        id: check-changes
+        run: |
+          if git diff --quiet CHANGELOG.md; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to CHANGELOG.md"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "CHANGELOG.md has been updated"
+          fi
+
+      - name: Create changelog update branch
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          BRANCH_NAME="changelog-update-${{ steps.version.outputs.version }}"
+          git checkout -b ${BRANCH_NAME}
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update changelog for version ${{ steps.version.outputs.version }}
+
+          - Auto-generated changelog entry
+          - Includes all commits since last version
+          - Categorized by change type (feat, fix, refactor, docs, etc.)"
+
+      - name: Push changelog update branch
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          BRANCH_NAME="changelog-update-${{ steps.version.outputs.version }}"
+          git push origin ${BRANCH_NAME}
+
+      - name: Create Pull Request
+        if: steps.check-changes.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📝 Update CHANGELOG.md for version ${{ steps.version.outputs.version }}`,
+              head: `changelog-update-${{ steps.version.outputs.version }}`,
+              base: 'main',
+              body: `## 📝 Changelog Update
+
+              This PR automatically updates the CHANGELOG.md file for version ${{ steps.version.outputs.version }}.
+
+              **Changes:**
+              - Added new changelog entry for version ${{ steps.version.outputs.version }}
+              - Categorized commits by type (feat, fix, refactor, docs, etc.)
+              - Maintains chronological order of changes
+
+              **Auto-generated by:** Changelog Update workflow
+              **Status:** Ready for review and merge
+
+              ### Preview
+              The changelog entry includes all relevant commits since the last version update.`,
+              labels: ['automated', 'changelog', 'documentation']
+            });
+            
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check-changes.outputs.changed }}" == "true" ]; then
+            echo "✅ CHANGELOG.md updated successfully"
+            echo "📝 Created PR for changelog update"
+          else
+            echo "ℹ️ No changes needed for CHANGELOG.md"
+          fi

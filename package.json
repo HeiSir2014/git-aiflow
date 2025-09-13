@@ -1,7 +1,7 @@
 {
   "name": "git-aiflow",
   "version": "1.0.20",
-  "description": "🚀 AI-powered intelligent workflow automation tool for GitLab merge request creation and Conan package management.",
+  "description": "🚀 An AI-powered workflow automation tool for effortless Git-based development, combining smart GitLab/GitHub merge & pull request creation with Conan package management.",
   "main": "dist/index.js",
   "bin": {
     "aiflow": "dist/aiflow-app.js",
@@ -21,7 +21,7 @@
   "scripts": {
     "node-ts": "node --loader ts-node/esm",
     "node-ts:debug": "node --inspect-brk --loader ts-node/esm",
-    "build": "tsc && npm run postbuild",
+    "build": "tsc",
     "postbuild": "node -e \"require('fs').chmodSync('dist/aiflow-app.js', '755'); require('fs').chmodSync('dist/aiflow-conan-app.js', '755');\"",
     "start": "npm run aiflow",
     "dev": "npm run aiflow:dev",
@@ -41,6 +41,8 @@
     "test:git-branch-graph": "npm run node-ts -- src/test/git-service-branch-graph.test.ts",
     "test:git-all": "npm run node-ts -- src/test/run-git-tests.ts",
     "test:update-checker": "npm run node-ts -- src/test/update-checker.test.ts",
+    "changelog": "node scripts/update-changelog.js",
+    "changelog:version": "node scripts/update-changelog.js",
     "aiflow": "npm run node-ts -- src/aiflow-app.ts",
     "aiflow:debug": "npm run node-ts -- --inspect=9229 src/aiflow-app.ts",
     "aiflow:debug-brk": "npm run node-ts -- --inspect-brk=9229 src/aiflow-app.ts",
@@ -70,7 +72,7 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.20",
-    "@types/node": "^24.3.1",
+    "@types/node": "^24.3.3",
     "@types/semver-compare": "^1.0.3",
     "@types/update-notifier": "^6.0.8",
     "cross-env": "^10.0.0",
