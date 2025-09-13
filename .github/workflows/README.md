@@ -19,9 +19,9 @@
 ```yaml
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ master ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ master ]
   workflow_dispatch:
 ```
 

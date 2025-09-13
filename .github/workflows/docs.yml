@@ -2,14 +2,14 @@ name: Documentation
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master ]
     paths:
       - 'src/**'
       - 'README*.md'
       - 'docs/**'
       - '.github/workflows/docs.yml'
   pull_request:
-    branches: [ main, master ]
+    branches: [ master ]
     paths:
       - 'src/**'
       - 'README*.md'
@@ -247,7 +247,7 @@ jobs:
           ## Available Workflows
           
           ### CI/CD Pipeline (`ci.yml`)
-          - **Trigger**: Push/PR to main branches
+          - **Trigger**: Push/PR to master branches
           - **Purpose**: Build, test, and validate code quality
           - **Jobs**:
             - Lint and type checking
@@ -267,7 +267,7 @@ jobs:
             - Post-release validation
           
           ### Code Quality (`quality.yml`)
-          - **Trigger**: Push/PR to main branches, daily schedule
+          - **Trigger**: Push/PR to master branches, daily schedule
           - **Purpose**: Comprehensive code quality and security analysis
           - **Jobs**:
             - CodeQL security analysis
@@ -285,7 +285,7 @@ jobs:
             - Vulnerability assessment
           
           ### Performance Monitoring (`performance.yml`)
-          - **Trigger**: Push to main, PR, daily schedule
+          - **Trigger**: Push to master, PR, daily schedule
           - **Purpose**: Monitor and track performance metrics
           - **Jobs**:
             - Build performance benchmarking
@@ -370,7 +370,7 @@ jobs:
           
           For developers working on AIFlow:
           
-          1. **Getting Started**: See the main README for setup instructions
+          1. **Getting Started**: See the master README for setup instructions
           2. **API Reference**: Check the [API documentation](api/) for detailed type information
           3. **CLI Usage**: Refer to [CLI documentation](cli/) for command details
           4. **Contributing**: See GitHub Actions [workflows](workflows/) for CI/CD information
@@ -379,7 +379,7 @@ jobs:
           
           If you need help:
           
-          1. Check the [troubleshooting section](../README.md#故障排除) in the main README
+          1. Check the [troubleshooting section](../README.md#故障排除) in the master README
           2. Search existing [issues](https://github.com/HeiSir2014/git-aiflow/issues)
           3. Create a new [issue](https://github.com/HeiSir2014/git-aiflow/issues/new)
           
@@ -411,7 +411,7 @@ jobs:
           echo "🔗 Checking Documentation Links"
           echo "=============================="
           
-          # Check main README
+          # Check master README
           if [ -f README.md ]; then
             echo "Checking README.md links:"
             markdown-link-check README.md --config .github/mlc-config.json || echo "Some links may be broken"
@@ -510,7 +510,7 @@ jobs:
     name: Publish Documentation
     runs-on: ubuntu-latest
     needs: [validate-documentation, generate-api-docs, validate-links]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     
     steps:
       - name: Checkout code
