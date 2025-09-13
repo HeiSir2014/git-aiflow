@@ -512,6 +512,11 @@ jobs:
     needs: [validate-documentation, generate-api-docs, validate-links]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -533,6 +538,8 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN}}
 
       - name: Create deployment summary
         run: |
