@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIFlow Documentation</title>
+  <style>
+    :root {
+      /* Light theme variables */
+      --bg-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8f9fa;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --text-tertiary: #555555;
+      --border-color: #e9ecef;
+      --shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      --card-hover-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      --command-bg: #2c3e50;
+      --command-hover-bg: #667eea;
+    }
+
+    [data-theme="dark"] {
+      /* Dark theme variables */
+      --bg-primary: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      --bg-secondary: #2d3748;
+      --bg-tertiary: #4a5568;
+      --text-primary: #e2e8f0;
+      --text-secondary: #a0aec0;
+      --text-tertiary: #cbd5e0;
+      --border-color: #4a5568;
+      --shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      --card-hover-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      --command-bg: #1a202c;
+      --command-hover-bg: #667eea;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+    }
+
+    .container {
+      background: var(--bg-secondary);
+      border-radius: 5px;
+      box-shadow: var(--shadow);
+      padding: 3rem;
+      max-width: 1440px;
+      width: 90%;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #667eea, #764ba2, #f093fb);
+    }
+
+    .logo {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      font-weight: 300;
+    }
+
+    .description {
+      font-size: 1.1rem;
+      color: var(--text-tertiary);
+      margin-bottom: 3rem;
+      line-height: 1.8;
+    }
+
+    .nav-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .nav-card {
+      background: var(--bg-tertiary);
+      border-radius: 15px;
+      padding: 2rem;
+      text-decoration: none;
+      color: var(--text-primary);
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .nav-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+      transition: left 0.5s;
+    }
+
+    .nav-card:hover::before {
+      left: 100%;
+    }
+
+    .nav-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--card-hover-shadow);
+      border-color: #667eea;
+    }
+
+    .nav-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+
+    .nav-title {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+    }
+
+    .nav-desc {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .quick-links {
+      background: var(--bg-tertiary);
+      border-radius: 15px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    .quick-links h3 {
+      color: var(--text-primary);
+      margin-bottom: 1.5rem;
+      font-size: 1.4rem;
+    }
+
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .link-item {
+      display: flex;
+      align-items: center;
+      padding: 0.8rem;
+      background: var(--bg-secondary);
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--text-tertiary);
+      transition: all 0.3s ease;
+      border: 1px solid var(--border-color);
+    }
+
+    .link-item:hover {
+      background: #667eea;
+      color: white;
+      transform: translateX(5px);
+    }
+
+    .link-icon {
+      margin-right: 0.8rem;
+      font-size: 1.2rem;
+    }
+
+    .footer {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .version {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      display: inline-block;
+      margin-bottom: 1rem;
+    }
+
+    .install-section {
+      background: var(--bg-tertiary);
+      border-radius: 15px;
+      padding: 2rem;
+      margin-bottom: 3rem;
+      border: 2px solid var(--border-color);
+    }
+
+    .install-section h3 {
+      color: var(--text-primary);
+      margin-bottom: 1.5rem;
+      font-size: 1.4rem;
+      text-align: center;
+    }
+
+    .install-commands {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .install-command {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-secondary);
+      padding: 1rem 1.5rem;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      transition: all 0.3s ease;
+    }
+
+    .install-command:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      border-color: #667eea;
+    }
+
+    .command-label {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+    }
+
+    .command {
+      background: var(--command-bg);
+      color: #fff;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      user-select: all;
+    }
+
+    .command:hover {
+      background: var(--command-hover-bg);
+      transform: scale(1.05);
+    }
+
+    /* Theme toggle button */
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: var(--bg-secondary);
+      border: 2px solid var(--border-color);
+      border-radius: 50px;
+      padding: 0.5rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      z-index: 1000;
+      box-shadow: var(--shadow);
+    }
+
+    .theme-toggle:hover {
+      transform: scale(1.1);
+      border-color: #667eea;
+    }
+
+    .theme-icon {
+      font-size: 1.5rem;
+      display: block;
+      transition: all 0.3s ease;
+    }
+
+    .theme-toggle[data-theme="light"] .theme-icon::before {
+      content: "🌙";
+    }
+
+    .theme-toggle[data-theme="dark"] .theme-icon::before {
+      content: "☀️";
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 2rem 1.5rem;
+        margin: 1rem;
+      }
+
+      .logo {
+        font-size: 2.5rem;
+      }
+
+      .nav-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .install-command {
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: center;
+      }
+
+      .command {
+        width: 100%;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Theme toggle button -->
+  <button class="theme-toggle" id="themeToggle" data-theme="light" title="Toggle theme">
+    <span class="theme-icon"></span>
+  </button>
+
+  <div class="container">
+    <div class="logo">🚀 Git-AIFlow
+    </div>
+    <div class="subtitle">AI-Powered Workflow Automation Tool</div>
+    <div class="version">v{{VERSION}}</div>
+
+    <div class="description">
+      An intelligent workflow automation tool for effortless Git-based development,
+      combining smart GitLab/GitHub merge & pull request creation with Conan package management.
+    </div>
+
+    <div class="install-section">
+      <h3>🚀 Quick Install</h3>
+      <div class="install-commands">
+        <div class="install-command">
+          <span class="command-label">Global Install:</span>
+          <code class="command">npm install -g git-aiflow</code>
+        </div>
+        <div class="install-command">
+          <span class="command-label">Using aiflow:</span>
+          <code class="command">aiflow</code>
+        </div>
+        <div class="install-command">
+          <span class="command-label">Using aiflow-conan:</span>
+          <code class="command">aiflow-conan</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-grid">
+      <a href="./api/" class="nav-card">
+        <span class="nav-icon">📚</span>
+        <div class="nav-title">API Documentation</div>
+        <div class="nav-desc">Complete TypeScript API reference with detailed type information and examples</div>
+      </a>
+
+      <a href="./cli/" class="nav-card">
+        <span class="nav-icon">⌨️</span>
+        <div class="nav-title">CLI Documentation</div>
+        <div class="nav-desc">Command-line interface guide with all available commands and options</div>
+      </a>
+
+      <a href="./workflows/" class="nav-card">
+        <span class="nav-icon">🔄</span>
+        <div class="nav-title">Workflow Guide</div>
+        <div class="nav-desc">GitHub Actions workflows documentation and CI/CD pipeline information</div>
+      </a>
+    </div>
+
+    <div class="quick-links">
+      <h3>🔗 Quick Links</h3>
+      <div class="links-grid">
+        <a href="../README.md" class="link-item">
+          <span class="link-icon">📖</span>
+          <span>Main README</span>
+        </a>
+        <a href="../README-EN.md" class="link-item">
+          <span class="link-icon">🌍</span>
+          <span>English README</span>
+        </a>
+        <a href="../config.example.yaml" class="link-item">
+          <span class="link-icon">⚙️</span>
+          <span>Configuration Example</span>
+        </a>
+        <a href="../LICENSE" class="link-item">
+          <span class="link-icon">📄</span>
+          <span>License</span>
+        </a>
+        <a href="https://www.npmjs.com/package/git-aiflow/" class="link-item">
+          <span class="link-icon">📦</span>
+          <span>NPM Package</span>
+        </a>
+        <a href="https://github.com/HeiSir2014/git-aiflow" class="link-item">
+          <span class="link-icon">🐙</span>
+          <span>GitHub Repository</span>
+        </a>
+        <a href="https://github.com/HeiSir2014/git-aiflow/issues" class="link-item">
+          <span class="link-icon">🐛</span>
+          <span>Report Issues</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>Built with ❤️ using TypeScript and modern web technologies</p>
+      <p>Last updated: <span id="lastUpdated"></span></p>
+    </div>
+  </div>
+
+  <script>
+    // Set last updated time
+    document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    // Theme management
+    function getSystemTheme() {
+      const hour = new Date().getHours();
+      return (hour >= 18 || hour < 6) ? 'dark' : 'light';
+    }
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const themeToggle = document.getElementById('themeToggle');
+      themeToggle.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+
+    function initTheme() {
+      // Check for saved theme preference or default to system theme
+      const savedTheme = localStorage.getItem('theme');
+      const systemTheme = getSystemTheme();
+      const theme = savedTheme || systemTheme;
+
+      setTheme(theme);
+
+      // Add click listener to theme toggle
+      document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+    }
+
+    // Add smooth animations
+    document.addEventListener('DOMContentLoaded', function () {
+      // Initialize theme
+      initTheme();
+
+      const cards = document.querySelectorAll('.nav-card');
+      cards.forEach((card, index) => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(20px)';
+        setTimeout(() => {
+          card.style.transition = 'all 0.6s ease';
+          card.style.opacity = '1';
+          card.style.transform = 'translateY(0)';
+        }, index * 100);
+      });
+
+      // Add copy functionality to install commands
+      const commands = document.querySelectorAll('.command');
+      commands.forEach(command => {
+        command.addEventListener('click', function () {
+          const text = this.textContent;
+          navigator.clipboard.writeText(text).then(() => {
+            // Show feedback
+            const originalText = this.textContent;
+            this.textContent = 'Copied!';
+            this.style.background = '#28a745';
+            setTimeout(() => {
+              this.textContent = originalText;
+              this.style.background = 'var(--command-bg)';
+            }, 1500);
+          }).catch(err => {
+            console.error('Failed to copy: ', err);
+          });
+        });
+      });
+    });
+  </script>
+</body>
+
+</html>
