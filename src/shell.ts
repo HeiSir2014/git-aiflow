@@ -134,7 +134,7 @@ export class Shell {
 
   private runWindowsSimpleCommand(command: string, startTime: number): string {
     // Single line command - use original method
-    const pwsh_command = `"[Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; ${command.replace(/"/g, '\\"')}"`;
+    const pwsh_command = `"[Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; ${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     const pwsh_args = [...this.shellArgs, pwsh_command];
 
     logger.debug(`Executing command: \n----\n${command}\n----`);
