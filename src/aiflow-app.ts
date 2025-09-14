@@ -21,9 +21,9 @@ import crypto from 'crypto';
  * Base class for AI-powered Git automation applications
  */
 export abstract class BaseAiflowApp {
-  protected readonly shell = new Shell();
+  protected readonly shell = Shell.instance();
   protected readonly http = new HttpClient();
-  protected readonly git = new GitService(this.shell);
+  protected readonly git = GitService.instance();
 
   protected config!: LoadedConfig;
   protected openai!: OpenAiService;
@@ -181,10 +181,8 @@ export abstract class BaseAiflowApp {
 
       // Stage selected files
       console.log(`\n${ColorUtil.UI_COLORS.emoji('📦')} ${ColorUtil.LOG_COLORS.info('Staging selected files...')}`);
-      for (const file of selectedFiles) {
-        this.git.addFile(file.path);
-      }
-
+      this.git.addFiles(selectedFiles.map(f => f.path));
+      
       console.log(ColorUtil.success(`Successfully staged ${selectedFiles.length} file(s).`));
       return true;
 
@@ -818,6 +816,8 @@ Examples:
 const run_file = path.basename(process.argv[1]).toLowerCase();
 const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
 const isMain = run_file && (['aiflow', 'git-aiflow', import_file].includes(run_file));
+logger.info(`${JSON.stringify(process.argv)} ${JSON.stringify(process.env)}`)
+
 isMain && GitAutoMrApp.main().catch((error) => {
   logger.error('❌ Unhandled error:', error);
   process.exit(1);

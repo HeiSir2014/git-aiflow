@@ -212,10 +212,9 @@ export class GitPlatformServiceFactory {
       // Create service instances
       const { HttpClient } = await import('../http/http-client.js');
       const { GitService } = await import('./git-service.js');
-      const { Shell } = await import('../shell.js');
 
       const httpClient = new HttpClient();
-      const gitSvc = new GitService(new Shell());
+      const gitSvc = GitService.instance();
 
       // Load configuration
       const { configLoader } = await import('../config.js');
