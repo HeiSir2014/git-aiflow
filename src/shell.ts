@@ -1,6 +1,7 @@
 import { spawnSync, SpawnSyncReturns } from "node:child_process";
 import { logger } from './logger.js';
 import { platform } from 'os';
+import { parse } from 'shell-quote';
 
 /**
  * Cross-platform shell executor
@@ -31,12 +32,30 @@ export class Shell {
     logger.debug(`Executing shell command: \n----\n${shell_command}${args.length > 0 ? ` ${args.join(" ")}` : ""}\n----`);
     const startTime = Date.now();
     try {
-      let result: SpawnSyncReturns<string>;
+      let command: string;
+      let commandArgs: string[];
+
       if (args.length > 0) {
-        result = spawnSync(shell_command, args, { encoding: "utf-8", shell: false, cwd: process.cwd() });
+        // Prefer explicit (executable, ...args)
+        command = shell_command;
+        commandArgs = args;
       } else {
-        result = spawnSync(shell_command, { encoding: "utf-8", shell: true, cwd: process.cwd() });
+        // Safely split the shell_command string into command and args
+        const parsed = parse(shell_command).filter((x: any) => typeof x === "string") as string[];
+        if (parsed.length === 0) {
+          throw new Error("No command to execute.");
+        }
+        command = parsed[0];
+        commandArgs = parsed.slice(1);
       }
+
+      // Always use shell: false to avoid command injection
+      const result: SpawnSyncReturns<string> = spawnSync(
+        command,
+        commandArgs,
+        { encoding: "utf-8", shell: false, cwd: process.cwd() }
+      );
+
       const duration = Date.now() - startTime;
       if (result.error) {
         logger.error(`Command failed (${duration}ms): ${shell_command}${args.length > 0 ? ` ${args.join(" ")}` : ""}`, result.error);
