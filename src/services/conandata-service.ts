@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import _ from 'lodash';
+const { escapeRegExp } = _;
 
 /**
  * Service for managing conandata.yml file updates
@@ -37,9 +39,10 @@ export class ConanDataService {
   updatePackageVersion(packageName: string, newVersion: string): string {
     const content = this.readContent();
     
+    const safePackageName = escapeRegExp(packageName);
     // Pattern to match package references like "- zterm/1.0.0.24"
     const packagePattern = new RegExp(
-      `^(\\s*-\\s+)${packageName}\/[^\\s]+`,
+      `^(\\s*-\\s+)${safePackageName}\/[^\\s]+`,
       'gm'
     );
     
@@ -86,9 +89,10 @@ export class ConanDataService {
   getCurrentVersion(packageName: string): string | null {
     const content = this.readContent();
     
+    const safePackageName = escapeRegExp(packageName);
     // Pattern to extract version from "- packageName/version"
     const versionPattern = new RegExp(
-      `^\\s*-\\s+${packageName}\/([^\\s]+)`,
+      `^\\s*-\\s+${safePackageName}\/([^\\s]+)`,
       'm'
     );
     
