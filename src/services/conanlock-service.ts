@@ -85,7 +85,6 @@ export class ConanLockService {
       `"${safePackageName}\/[^#]+#[^%]+%[^"]+"`,'g'
     );
     
-    let updatedContent = content;
     let matchCount = 0;
     
     updatedContent = content.replace(lockPattern, (match) => {
