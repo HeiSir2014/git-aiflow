@@ -816,8 +816,6 @@ Examples:
 const run_file = path.basename(process.argv[1]).toLowerCase();
 const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
 const isMain = run_file && (['aiflow', 'git-aiflow', import_file].includes(run_file));
-logger.info(`${JSON.stringify(process.argv)} ${JSON.stringify(process.env)}`)
-
 isMain && GitAutoMrApp.main().catch((error) => {
   logger.error('❌ Unhandled error:', error);
   process.exit(1);
