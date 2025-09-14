@@ -140,7 +140,7 @@ export class ConanLockService {
   getCurrentLockInfo(packageName: string): ConanLockEntry | null {
     const content = this.readContent();
     
-    const safePackageName = _.escapeRegExp(packageName);
+    const safePackageName = escapeRegExp(packageName);
     // Pattern to find package lock entry
     const lockPattern = new RegExp(
       `"(${safePackageName}\/[^#]+#[^%]+%[^"]+)"`, 'g'
