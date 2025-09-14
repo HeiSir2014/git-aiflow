@@ -10,8 +10,8 @@ async function testGitServiceNewMethods(): Promise<void> {
   console.log('🧪 Testing GitService New Methods');
   console.log('='.repeat(50));
 
-  const shell = new Shell();
-  const git = new GitService(shell);
+  const shell = Shell.instance();
+  const git = GitService.instance();
 
   try {
     // Test 1: getBaseBranch() - Find parent branch

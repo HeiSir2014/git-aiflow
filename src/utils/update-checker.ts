@@ -18,7 +18,7 @@ interface UpdateCache {
  * Update checker utility for managing version checks and automatic updates
  */
 export class UpdateChecker {
-  private readonly shell = new Shell();
+  private readonly shell = Shell.instance();
   private readonly packageJson: any;
   private readonly cacheFilePath: string;
   private readonly checkIntervalMs = 120 * 60 * 1000; // 2 hours
@@ -94,17 +94,8 @@ export class UpdateChecker {
         scriptPath.includes(pattern) || scriptPath.includes(pattern.replace(/\//g, '\\'))
       );
 
-      // Additional check: try to run 'npm list -g --depth=0' to see if our package is listed
       if (isGlobal) {
-        try {
-          // Cross-platform approach: let the shell handle errors gracefully
-          const result = this.shell.run('npm list -g --depth=0 git-aiflow');
-          return result.includes('git-aiflow');
-        } catch {
-          // If npm command fails, fall back to path-based detection
-          // This is expected if the package is not globally installed
-          return true;
-        }
+        return true;
       }
 
       return false;

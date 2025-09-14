@@ -74,6 +74,7 @@
     "@types/lodash": "^4.17.20",
     "@types/node": "^24.3.3",
     "@types/semver-compare": "^1.0.3",
+    "@types/shell-quote": "^1.7.5",
     "@types/update-notifier": "^6.0.8",
     "cross-env": "^10.0.0",
     "ts-node": "^10.9.2",
@@ -86,6 +87,7 @@
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
     "semver-compare": "^1.0.0",
+    "shell-quote": "^1.8.3",
     "update-notifier": "^7.3.1",
     "winston": "^3.17.0"
   },

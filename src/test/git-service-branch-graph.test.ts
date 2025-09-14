@@ -10,8 +10,8 @@ async function testGitServiceBranchGraph(): Promise<void> {
   console.log('🧪 Testing GitService Branch Graph Functionality');
   console.log('='.repeat(60));
 
-  const shell = new Shell();
-  const git = new GitService(shell);
+  const shell = Shell.instance();
+  const git = GitService.instance();
 
   try {
     // Test 1: Basic branch graph generation

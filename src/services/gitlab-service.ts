@@ -1,6 +1,5 @@
 import { HttpClient } from '../http/http-client.js';
 import { GitService } from './git-service.js';
-import { Shell } from '../shell.js';
 
 /**
  * GitLab project information
@@ -30,7 +29,7 @@ export class GitlabService {
       this.gitService = gitService;
     } else {
       // Create a default GitService with Shell for auto-detection
-      this.gitService = new GitService(new Shell());
+      this.gitService = GitService.instance();
     }
 
     // Auto-detect baseUrl from git remote if not provided

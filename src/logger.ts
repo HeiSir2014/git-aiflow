@@ -79,7 +79,7 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
 
   const logFormat = winston.format.combine(
     winston.format.timestamp({
-      format: 'YYYY-MM-DD HH:mm:ss'
+      format: 'YYYY-MM-DD HH:mm:ss.SSS'
     }),
     winston.format.errors({ stack: true }),
     winston.format.printf(({ level, message, timestamp, stack, ...meta }) => {
@@ -133,7 +133,7 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
         format: winston.format.combine(
           winston.format.colorize(),
           winston.format.timestamp({
-            format: 'HH:mm:ss'
+            format: 'HH:mm:ss.SSS'
           }),
           winston.format.printf(({ level, message, timestamp, ...meta }) => {
             let consoleMessage = `${timestamp} ${level}: ${message}`;
@@ -286,6 +286,32 @@ export class Logger {
   static getInstance(config?: Partial<LoggerConfig>): Logger {
     if (!Logger.instance) {
       Logger.instance = new Logger(config);
+
+      async function shutdownLogger() {
+        if (!Logger.hasInstance()) return;
+        const winstonLogger = Logger.getInstance().getWinston();
+
+        await Promise.all(
+          winstonLogger.transports.map(transport => {
+            return new Promise<void>(resolve => {
+              if (typeof (transport as any).close === 'function') {
+                (transport as any).close();
+              }
+              if ((transport as any)._stream && (transport as any)._stream.end) {
+                (transport as any)._stream.end(resolve);
+              } else {
+                resolve();
+              }
+            });
+          })
+        );
+      }
+
+      process.on('beforeExit', shutdownLogger);
+      process.on('SIGINT', async () => {
+        await shutdownLogger();
+        process.exit(0);
+      });
     } else if (config) {
       // If config is provided and instance exists, recreate with new config
       Logger.instance.winston = createWinstonLogger({ ...defaultConfig, ...config });

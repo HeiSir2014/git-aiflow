@@ -24,11 +24,12 @@ export interface GitFileStatus {
 export class GitService {
   private readonly shell: Shell;
   private static readonly protocolCache = new Map<string, string>();
+  private static readonly instances = new Map<string, GitService>();
   private remote_name?: string;
-  private remote_url?: string;
+  private remote_urls = new Map<string, string>();
 
-  constructor(shell?: Shell) {
-    this.shell = shell || new Shell();
+  private constructor(shell?: Shell) {
+    this.shell = shell || Shell.instance();
     logger.debug('GitService initialized');
   }
 
@@ -172,13 +173,13 @@ export class GitService {
 
     if (!remoteBranchExists.success || !remoteBranchExists.output.trim()) {
       logger.warn(`Remote branch ${remoteName}/${branchName} does not exist. Unset upstream tracking.`);
-      
+
       // Unset upstream tracking to avoid "upstream branch does not exist" warnings
       this.executeGitCommand(
         `git branch --unset-upstream`,
         'Unsetting upstream tracking'
       );
-      
+
       logger.info(`Checked out to local branch ${branchName} without remote tracking.`);
       return;
     }
@@ -280,11 +281,11 @@ export class GitService {
   }
 
   getUserName(): string {
-    return StringUtil.sanitizeName(this.shell.run("git config user.name"));
+    return StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
   }
 
   getDiff(): string {
-    return this.shell.run("git diff --cached --text");
+    return this.shell.runProcess("git", "diff", "--cached", "--text");
   }
 
   /**
@@ -298,7 +299,7 @@ export class GitService {
     }
 
     const files = filePaths.join(' ');
-    return this.shell.run(`git diff --text ${files}`).trim();
+    return this.shell.runProcess("git", "diff", "--text", files);
   }
 
   /**
@@ -314,7 +315,7 @@ export class GitService {
         return '';
       }
 
-      const diffOutput = this.shell.run(`git diff --text ${baseBranch}...${targetBranch}`).trim();
+      const diffOutput = this.shell.runProcess("git", "diff", "--text", `${baseBranch}...${targetBranch}`);
       logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
       return diffOutput;
     } catch (error) {
@@ -336,7 +337,7 @@ export class GitService {
         return [];
       }
 
-      const filesOutput = this.shell.run(`git diff --name-only ${baseBranch}...${targetBranch}`).trim();
+      const filesOutput = this.shell.runProcess("git", "diff", "--name-only", `${baseBranch}...${targetBranch}`).trim();
       const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
 
       logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
@@ -353,15 +354,21 @@ export class GitService {
    */
   addFile(filePath: string): void {
     logger.info(`Adding file: ${filePath}`);
-    this.shell.run(`git add -f "${filePath}"`);
+    this.shell.runProcess("git", "add", "-f", filePath);
   }
 
   /**
    * Add multiple files to staging area
    * @param filePaths Array of file paths to add
    */
-  addFiles(filePaths: string[]): void {
-    filePaths.forEach(filePath => this.addFile(filePath));
+  addFiles(filePaths: string[], batchSize = 1000): void {
+    if (filePaths.length === 0) return;
+
+    logger.info(`Adding ${filePaths.length} files in batches of ${batchSize}`);
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      this.shell.runProcess("git", "add", "-f", ...batch);
+    }
   }
 
   /**
@@ -370,7 +377,7 @@ export class GitService {
    */
   createBranch(branchName: string): void {
     logger.info(`Creating branch: ${branchName}`);
-    this.shell.run(`git checkout -b "${branchName}"`);
+    this.shell.runProcess("git", "checkout", "-b", branchName);
   }
 
   /**
@@ -380,23 +387,22 @@ export class GitService {
   commit(message: string): void {
     logger.info('Committing changes...');
     logger.debug(`Commit message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+    if (!message.includes("\n")) {
+      // 单行 commit
+      const escapedMessage = message
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/`/g, "\\`");
 
-    // Use PowerShell here-string for multiline messages
-    if (message.includes('\n')) {
-      // Escape single quotes in the message for PowerShell here-string
-      const escapedMessage = message.replace(/'/g, "''");
-
-      // Use PowerShell here-string syntax with git commit -m
-      const powershellCommand = `git commit -m @'
-${escapedMessage}
-'@`;
-
-      this.shell.run(powershellCommand);
-    } else {
-      // For single line messages, use standard escaping
-      const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`');
-      this.shell.run(`git commit -m "${escapedMessage}"`);
+      this.shell.runProcess("git", "commit", "-m", escapedMessage);
+      return;
     }
+    const lines = message.split(/\r?\n/).map(line => line.trimEnd());
+    const args: string[] = ["commit"];
+    for (const line of lines) {
+      args.push("-m", line);
+    }
+    this.shell.runProcess("git", ...args);
   }
 
   /**
@@ -405,7 +411,7 @@ ${escapedMessage}
    */
   push(branchName: string): void {
     logger.info(`Pushing branch: ${branchName}`);
-    this.shell.run(`git push -u ${this.getRemoteName()} "${branchName}"`);
+    this.shell.runProcess("git", "push", "-u", this.getRemoteName(), branchName);
   }
 
   /**
@@ -425,7 +431,7 @@ ${escapedMessage}
   }
 
   getChangedFiles(limit?: number): string[] {
-    const files = this.shell.run("git diff --cached --name-only").trim().split("\n").filter(Boolean);
+    const files = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim().split("\n").filter(Boolean);
     if (limit) {
       return files.slice(0, limit);
     }
@@ -436,7 +442,7 @@ ${escapedMessage}
    * Get git repository root directory
    */
   getRepositoryRoot(): string {
-    return this.shell.run("git rev-parse --show-toplevel").trim();
+    return this.shell.runProcess("git", "rev-parse", "--show-toplevel").trim();
   }
 
   /**
@@ -453,7 +459,7 @@ ${escapedMessage}
     }
 
     try {
-      const remotesOutput = this.shell.run('git remote').trim();
+      const remotesOutput = this.shell.runProcess("git", "remote").trim();
       if (!remotesOutput) {
         logger.warn('No remotes found, using "origin" as fallback');
         this.remote_name = 'origin';
@@ -495,19 +501,20 @@ ${escapedMessage}
    * Get remote URL for specified remote
    */
   getRemoteUrl(remoteName?: string): string {
-    if (this.remote_url) {
-      return this.remote_url;
-    }
-    const remote = remoteName || this.getRemoteName();
-    if (!remote) {
+    remoteName = remoteName || this.getRemoteName();
+    if (!remoteName) {
       return 'No remote configured';
     }
+    let remote_url = this.remote_urls.get(remoteName);
+    if (remote_url) {
+      return remote_url;
+    }
     try {
-      const remote_url = this.shell.run(`git remote get-url ${remote}`).trim();
-      this.remote_url = remote_url;
+      remote_url = this.shell.runProcess("git", "remote", "get-url", remoteName).trim();
+      this.remote_urls.set(remoteName, remote_url);
       return remote_url;
     } catch (error) {
-      return `Error getting URL for remote '${remote}'`;
+      return `Error getting URL for remote '${remoteName}' ${error}`;
     }
   }
 
@@ -762,11 +769,11 @@ ${escapedMessage}
    */
   getCurrentBranch(): string {
     try {
-      return this.shell.run("git branch --show-current").trim();
+      return this.shell.runProcess("git", "branch", "--show-current").trim();
     } catch (error) {
       // Fallback for older git versions
       try {
-        const result = this.shell.run("git rev-parse --abbrev-ref HEAD").trim();
+        const result = this.shell.runProcess("git", "rev-parse", "--abbrev-ref", "HEAD").trim();
         return result === 'HEAD' ? 'detached' : result;
       } catch (fallbackError) {
         return 'unknown';
@@ -830,7 +837,7 @@ ${escapedMessage}
    */
   hasRemoteBranch(branchName: string): boolean {
     try {
-      this.shell.run(`git rev-parse --verify ${branchName}`).trim();
+      this.shell.runProcess("git", "rev-parse", "--verify", branchName).trim();
       return true;
     } catch (error) {
       logger.debug(`Remote branch ${branchName} does not exist`);
@@ -842,14 +849,14 @@ ${escapedMessage}
    * Get short commit hash
    */
   getShortCommit(): string {
-    return this.shell.run("git rev-parse --short HEAD").trim();
+    return this.shell.runProcess("git", "rev-parse", "--short", "HEAD").trim();
   }
 
   /**
    * Check if repository has uncommitted changes
    */
   hasUncommittedChanges(): boolean {
-    const status = this.shell.run("git status --porcelain").trim();
+    const status = this.shell.runProcess("git", "status", "--porcelain").trim();
     return status.length > 0;
   }
 
@@ -857,7 +864,7 @@ ${escapedMessage}
    * Check if repository has staged changes
    */
   hasStagedChanges(): boolean {
-    const status = this.shell.run("git diff --cached --name-only").trim();
+    const status = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim();
     return status.length > 0;
   }
 
@@ -867,7 +874,7 @@ ${escapedMessage}
    */
   status(): GitFileStatus[] {
     try {
-      const statusOutput = this.shell.run("git status --short --ignore-submodules --porcelain --untracked-files=all");
+      const statusOutput = this.shell.runProcess("git", "status", "--short", "--ignore-submodules", "--porcelain", "--untracked-files=all");
 
       if (!statusOutput) {
         return [];
@@ -1020,7 +1027,7 @@ ${escapedMessage}
 
       // User information
       const userName = this.getUserName();
-      const userEmail = this.shell.run("git config user.email").trim();
+      const userEmail = this.shell.runProcess("git", "config", "user.email").trim();
       logger.info(`Git User: ${userName} <${userEmail}>`);
 
     } catch (error) {
@@ -1039,16 +1046,16 @@ ${escapedMessage}
       const currentBranch = this.getCurrentBranch();
       if (!currentBranch || currentBranch === 'HEAD') return null;
 
-      const logGraph = this.shell.run('git log --graph --oneline --decorate --all --simplify-by-decoration');
+      const logGraph = this.shell.runProcess("git", "log", "--graph", "--oneline", "--decorate", "--all", "--simplify-by-decoration");
       const lines = logGraph.split('\n');
 
       // 本地和远程分支列表
       const localBranches = this.shell
-        .run("git for-each-ref --format='%(refname:short)' refs/heads/")
+        .runProcess("git","for-each-ref", "--format=%(refname:short)", "refs/heads/")
         .trim()
         .split('\n')
         .map(b => b.trim());
-      const remotes = this.shell.run('git remote').trim().split('\n').map(r => r.trim());
+      const remotes = this.shell.runProcess("git", "remote").trim().split('\n').map(r => r.trim());
 
       for (const line of lines) {
         const match = line.match(/\((.*?)\)/);
@@ -1097,7 +1104,7 @@ ${escapedMessage}
         return null;
       }
 
-      const mergeBase = this.shell.run(`git merge-base HEAD ${otherBranch}`).trim();
+      const mergeBase = this.shell.runProcess("git", "merge-base", "HEAD", otherBranch).trim();
 
       if (!mergeBase || mergeBase === '') {
         logger.warn(`No merge-base found between current branch and ${otherBranch}`);
@@ -1125,8 +1132,7 @@ ${escapedMessage}
       }
 
       // Use git log with graph, oneline, decorate, and color options
-      const graphCommand = `git log --oneline --graph --decorate --color=always --all -n ${limit}`;
-      const graphOutput = this.shell.run(graphCommand).trim();
+      const graphOutput = this.shell.runProcess("git", "log", "--oneline", "--graph", "--decorate", "--color=always", "--all", "-n", `${limit}`).trim();
 
       if (!graphOutput) {
         logger.debug('No branch graph output generated');
@@ -1139,5 +1145,15 @@ ${escapedMessage}
       logger.error('Error getting branch graph:', error);
       return '';
     }
+  }
+
+  static instance(): GitService {
+    const pwd = process.cwd();
+    if (GitService.instances.get(pwd)) {
+      return GitService.instances.get(pwd)!;
+    }
+    const gitService = new GitService();
+    GitService.instances.set(pwd, gitService);
+    return gitService;
   }
 }

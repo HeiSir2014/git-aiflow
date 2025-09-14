@@ -9,7 +9,7 @@ async function testShellMultiline(): Promise<void> {
   console.log('🧪 Testing Shell Multiline Command Support');
   console.log('='.repeat(50));
 
-  const shell = new Shell();
+  const shell = Shell.instance();
 
   try {
     // Test 1: Single line command

@@ -10,8 +10,8 @@ async function testGitServiceBranchOperations(): Promise<void> {
   console.log('🧪 Testing GitService Branch Operations');
   console.log('='.repeat(60));
 
-  const shell = new Shell();
-  const git = new GitService(shell);
+  const shell = Shell.instance();
+  const git = GitService.instance();
 
   let testCount = 0;
   let passedCount = 0;
