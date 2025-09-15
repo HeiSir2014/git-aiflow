@@ -625,7 +625,8 @@ export class GitService {
       'gitee.com',
       'codeberg.org',
       'git.sr.ht',
-      'coding.net'
+      'coding.net',
+      'e.coding.net'
     ];
 
     if (httpsOnlyHosts.includes(hostname)) {
