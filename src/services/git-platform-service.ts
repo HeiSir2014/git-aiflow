@@ -257,6 +257,12 @@ export class GitPlatformServiceFactory {
           return new module.GithubPlatformService(token, baseUrl, gitSvc, httpClient);
         }
 
+        case GitPlatform.CODING:
+        case GitPlatform.CODING_ORG: {
+          const module = await import('./coding-platform-service.js');
+          return new module.CodingPlatformService(token, baseUrl, gitSvc, httpClient);
+        }
+
         default:
           return undefined;
       }
@@ -280,6 +286,10 @@ export class GitPlatformServiceFactory {
 
     if (hostname === 'gitlab.com' || hostname.includes('gitlab')) {
       return GitPlatform.GITLAB;
+    }
+
+    if (hostname === 'e.coding.net' || hostname === 'coding.net' || hostname.includes('coding.net')) {
+      return GitPlatform.CODING;
     }
 
     // For unknown hostnames, try to detect by API endpoints
@@ -367,6 +377,32 @@ export class GitPlatformServiceFactory {
         }
       }
 
+      // Test CODING.net API endpoint
+      const codingApiUrl = 'https://e.coding.net/open-api?action=DescribeUserByGK';
+      GitPlatformServiceFactory.logger.debug(`Testing CODING API: ${codingApiUrl}`);
+
+      const controller3 = new AbortController();
+      const timeoutId3 = setTimeout(() => controller3.abort(), timeout);
+
+      try {
+        const codingResponse = await fetch(codingApiUrl, {
+          method: 'HEAD',
+          signal: controller3.signal
+        });
+        clearTimeout(timeoutId3);
+
+        if (codingResponse.status === 200 || codingResponse.status === 401 || codingResponse.status === 400) {
+          // 200: public endpoint, 401: requires auth, 400: bad request but endpoint exists
+          GitPlatformServiceFactory.logger.info(`CODING API detected (status: ${codingResponse.status})`);
+          return GitPlatform.CODING;
+        }
+      } catch (error) {
+        clearTimeout(timeoutId3);
+        if (error instanceof Error && error.name !== 'AbortError') {
+          GitPlatformServiceFactory.logger.debug(`CODING API test failed: ${error.message}`);
+        }
+      }
+
       GitPlatformServiceFactory.logger.warn(`No known platform API detected for ${baseUrl}`);
       return undefined;
 
@@ -380,6 +416,6 @@ export class GitPlatformServiceFactory {
    * Get list of supported platforms
    */
   static getSupportedPlatforms(): GitPlatform[] {
-    return [GitPlatform.GITLAB, GitPlatform.GITHUB];
+    return [GitPlatform.GITLAB, GitPlatform.GITHUB, GitPlatform.CODING];
   }
 }
