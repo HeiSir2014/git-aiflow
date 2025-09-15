@@ -420,14 +420,19 @@ export class Logger {
    * Log HTTP request/response
    */
   httpRequest(method: string, url: string, status?: number, duration?: number): void {
-    this.http(`${method} ${url}`, { status, duration });
+    this.http(`${method} ${url} ${status ? `(${status})` : ''} ${duration ? `(${duration}ms)` : ''}`);
   }
 
   /**
    * Log service operations
    */
   service(operation: string, service: string, meta?: any): void {
-    this.info(`${service}: ${operation}`, meta);
+    if (meta) {
+      // Use Winston's structured logging instead of stringifying in the message
+      this.winston.info(this.formatMessage(`${service}: ${operation}`), meta);
+    } else {
+      this.winston.info(this.formatMessage(`${service}: ${operation}`));
+    }
   }
 
   /**
