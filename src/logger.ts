@@ -427,7 +427,12 @@ export class Logger {
    * Log service operations
    */
   service(operation: string, service: string, meta?: any): void {
-    this.info(`${service}: ${operation} ${meta ? `(${JSON.stringify(meta, null, 0)})` : ''}`);
+    if (meta) {
+      // Use Winston's structured logging instead of stringifying in the message
+      this.winston.info(this.formatMessage(`${service}: ${operation}`), meta);
+    } else {
+      this.winston.info(this.formatMessage(`${service}: ${operation}`));
+    }
   }
 
   /**
