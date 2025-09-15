@@ -420,14 +420,14 @@ export class Logger {
    * Log HTTP request/response
    */
   httpRequest(method: string, url: string, status?: number, duration?: number): void {
-    this.http(`${method} ${url}`, { status, duration });
+    this.http(`${method} ${url} ${status ? `(${status})` : ''} ${duration ? `(${duration}ms)` : ''}`);
   }
 
   /**
    * Log service operations
    */
   service(operation: string, service: string, meta?: any): void {
-    this.info(`${service}: ${operation}`, meta);
+    this.info(`${service}: ${operation} ${meta ? `(${JSON.stringify(meta, null, 0)})` : ''}`);
   }
 
   /**

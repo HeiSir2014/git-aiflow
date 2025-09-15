@@ -244,7 +244,11 @@ ACCURACY REQUIREMENTS:
         },
         {
           role: "user",
-          content: `Analyze this git diff and generate commit message, branch name, MR description and MR title:\n\n${diff}`,
+          content: `Analyze this git diff and generate commit message, branch name, MR description and MR title, next is the diff raw data:`,
+        },
+        {
+          role: "user",
+          content: diff,
         },
       ],
       temperature: 0.1, // Low temperature for consistent, accurate commit messages
@@ -836,7 +840,11 @@ ACCURACY REQUIREMENTS:
         },
         {
           role: "user",
-          content: `Analyze this git diff (${filesInfo}) and generate commit message, branch name, MR description and MR title:\n\n${diffChunk.content}`,
+          content: `Analyze this git diff (${filesInfo}) and generate commit message, branch name, MR description and MR title, next is the diff raw data:`,
+        },
+        {
+          role: "user",
+          content: diffChunk.content,
         },
       ],
       temperature: 0.1,
