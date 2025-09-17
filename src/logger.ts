@@ -1,7 +1,7 @@
 import winston from 'winston';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
+import os from 'os';
 
 /**
  * Log levels
@@ -26,6 +26,14 @@ interface LoggerConfig {
   maxFiles: number;
   logDir: string;
   enableConsole: boolean;
+  /** Buffer size for file writes (bytes) */
+  bufferSize: number;
+  /** Auto-flush interval (milliseconds) */
+  flushInterval: number;
+  /** Enable lazy file creation */
+  lazy: boolean;
+  /** High water mark for streams */
+  highWaterMark: number;
 }
 
 /**
@@ -67,7 +75,11 @@ const defaultConfig: LoggerConfig = {
   maxSize: '10m',      // 10MB per file
   maxFiles: 5,         // Keep 5 files
   logDir: getGlobalLogsDir(),
-  enableConsole: true
+  enableConsole: true,
+  bufferSize: 64 * 1024,  // 64KB buffer for better performance
+  flushInterval: 0,       // Disable auto-flush to avoid blocking (was 5000)
+  lazy: false,           // Create files immediately (was true)
+  highWaterMark: 16 * 1024 // 16KB high water mark
 };
 
 /**
@@ -109,7 +121,8 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
       format: logFormat,
       maxsize: parseSize(config.maxSize),
       maxFiles: config.maxFiles,
-      tailable: true
+      tailable: true,
+      lazy: config.lazy
     })
   );
 
@@ -121,7 +134,8 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
       format: logFormat,
       maxsize: parseSize(config.maxSize),
       maxFiles: config.maxFiles,
-      tailable: true
+      tailable: true,
+      lazy: config.lazy
     })
   );
 
@@ -155,12 +169,44 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
     );
   }
 
-  return winston.createLogger({
+  const logger = winston.createLogger({
     level: config.level,
     transports,
     exitOnError: false,
     silent: false
   });
+
+  // Set up periodic flush for better write performance balance
+  if (config.flushInterval > 0) {
+    const flushTimer = setInterval(() => {
+      try {
+        logger.transports.forEach(transport => {
+          if (transport instanceof winston.transports.File) {
+            // Force flush file transports safely
+            const stream = (transport as any)._stream;
+            if (stream && stream.writable && typeof stream.flush === 'function') {
+              // Use setImmediate to avoid blocking
+              setImmediate(() => {
+                try {
+                  stream.flush();
+                } catch (error) {
+                  // Ignore flush errors to prevent crashes
+                }
+              });
+            }
+          }
+        });
+      } catch (error) {
+        // Ignore timer errors to prevent crashes
+      }
+    }, config.flushInterval);
+
+    // Store timer for cleanup and make it not block process exit
+    flushTimer.unref();
+    (logger as any).flushTimer = flushTimer;
+  }
+
+  return logger;
 }
 
 /**
@@ -274,7 +320,9 @@ function getCallerInfo(): string {
  */
 export class Logger {
   private static instance: Logger | null = null;
+  static shutdownLogger: (() => Promise<void>) | null = null;
   private winston: winston.Logger;
+  private isShuttingDown: boolean = false;
 
   private constructor(config?: Partial<LoggerConfig>) {
     this.winston = createWinstonLogger({ ...defaultConfig, ...config });
@@ -287,31 +335,79 @@ export class Logger {
     if (!Logger.instance) {
       Logger.instance = new Logger(config);
 
-      async function shutdownLogger() {
+      // Store shutdown function as static method
+      Logger.shutdownLogger = async function() {
         if (!Logger.hasInstance()) return;
-        const winstonLogger = Logger.getInstance().getWinston();
+        const loggerInstance = Logger.getInstance();
+        const winstonLogger = loggerInstance.getWinston();
 
-        await Promise.all(
-          winstonLogger.transports.map(transport => {
-            return new Promise<void>(resolve => {
+        // Mark as shutting down to prevent new logs
+        loggerInstance.isShuttingDown = true;
+
+        // Clear flush timer if exists
+        const flushTimer = (winstonLogger as any).flushTimer;
+        if (flushTimer) {
+          clearInterval(flushTimer);
+        }
+
+        // Final flush before closing (with timeout)
+        const flushPromises = winstonLogger.transports.map(transport => {
+          return new Promise<void>(resolve => {
+            if (transport instanceof winston.transports.File) {
+              const stream = (transport as any)._stream;
+              if (stream && stream.writable && typeof stream.flush === 'function') {
+                try {
+                  stream.flush();
+                } catch (error) {
+                  // Ignore flush errors
+                }
+              }
+            }
+            resolve();
+          });
+        });
+
+        // Wait for flush with timeout
+        await Promise.race([
+          Promise.all(flushPromises),
+          new Promise<void>(resolve => setTimeout(resolve, 1000)) // 1 second timeout
+        ]);
+
+        // Close all transports gracefully with timeout
+        const closePromises = winstonLogger.transports.map(transport => {
+          return new Promise<void>(resolve => {
+            const timeout = setTimeout(() => resolve(), 500); // 500ms timeout
+            
+            try {
               if (typeof (transport as any).close === 'function') {
                 (transport as any).close();
               }
-              if ((transport as any)._stream && (transport as any)._stream.end) {
-                (transport as any)._stream.end(resolve);
+              const stream = (transport as any)._stream;
+              if (stream && typeof stream.end === 'function') {
+                stream.end(() => {
+                  clearTimeout(timeout);
+                  resolve();
+                });
               } else {
+                clearTimeout(timeout);
                 resolve();
               }
-            });
-          })
-        );
-      }
+            } catch (error) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
 
-      process.on('beforeExit', shutdownLogger);
-      process.on('SIGINT', async () => {
-        await shutdownLogger();
-        process.exit(0);
-      });
+        await Promise.all(closePromises);
+      };
+
+      // Don't add automatic signal handlers - let main app handle graceful shutdown
+      // process.on('beforeExit', shutdownLogger);
+      // process.on('SIGINT', async () => {
+      //   await shutdownLogger();
+      //   process.exit(0);
+      // });
     } else if (config) {
       // If config is provided and instance exists, recreate with new config
       Logger.instance.winston = createWinstonLogger({ ...defaultConfig, ...config });
@@ -372,6 +468,7 @@ export class Logger {
   }
 
   error(message: string, error?: Error | any): void {
+    if (this.isShuttingDown) return;
     if (error instanceof Error) {
       this.winston.error(this.formatMessage(message), { error: error.message, stack: error.stack });
     } else if (error) {
@@ -382,26 +479,32 @@ export class Logger {
   }
 
   warn(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.warn(this.formatMessage(message), meta);
   }
 
   info(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.info(this.formatMessage(message), meta);
   }
 
   http(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.http(this.formatMessage(message), meta);
   }
 
   verbose(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.verbose(this.formatMessage(message), meta);
   }
 
   debug(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.debug(this.formatMessage(message), meta);
   }
 
   silly(message: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     this.winston.silly(this.formatMessage(message), meta);
   }
 
@@ -409,6 +512,7 @@ export class Logger {
    * Log shell command execution
    */
   shell(command: string, result?: string, error?: Error): void {
+    if (this.isShuttingDown) return;
     if (error) {
       this.error(`Shell command failed: ${command}`, error);
     } else {
@@ -420,6 +524,7 @@ export class Logger {
    * Log HTTP request/response
    */
   httpRequest(method: string, url: string, status?: number, duration?: number): void {
+    if (this.isShuttingDown) return;
     this.http(`${method} ${url} ${status ? `(${status})` : ''} ${duration ? `(${duration}ms)` : ''}`);
   }
 
@@ -427,6 +532,7 @@ export class Logger {
    * Log service operations
    */
   service(operation: string, service: string, meta?: any): void {
+    if (this.isShuttingDown) return;
     if (meta) {
       // Use Winston's structured logging instead of stringifying in the message
       this.winston.info(this.formatMessage(`${service}: ${operation}`), meta);
@@ -441,12 +547,67 @@ export class Logger {
   getWinston(): winston.Logger {
     return this.winston;
   }
+
+  /**
+   * Force flush all file transports
+   */
+  flush(): void {
+    if (this.isShuttingDown) return;
+    this.winston.transports.forEach(transport => {
+      if (transport instanceof winston.transports.File) {
+        const stream = (transport as any)._stream;
+        if (stream && typeof stream.flush === 'function') {
+          stream.flush();
+        }
+      }
+    });
+  }
+
+  /**
+   * Get current buffer stats (if available)
+   */
+  getBufferStats(): { transportType: string; buffered?: number; highWaterMark?: number }[] {
+    return this.winston.transports.map(transport => {
+      const stats: { transportType: string; buffered?: number; highWaterMark?: number } = {
+        transportType: transport.constructor.name
+      };
+      
+      if (transport instanceof winston.transports.File) {
+        const stream = (transport as any)._stream;
+        if (stream) {
+          stats.buffered = stream._writableState?.bufferedRequestCount || 0;
+          stats.highWaterMark = stream._writableState?.highWaterMark || 0;
+        }
+      }
+      
+      return stats;
+    });
+  }
 }
 
 /**
  * Default logger instance (singleton)
  */
 export const logger = Logger.getInstance();
+
+/**
+ * Mark logger as shutting down (prevent new logs)
+ */
+export function markLoggerShuttingDown(): void {
+  if (Logger.hasInstance()) {
+    const instance = Logger.getInstance();
+    (instance as any).isShuttingDown = true;
+  }
+}
+
+/**
+ * Gracefully shutdown logger (close file streams)
+ */
+export async function shutdownLogger(): Promise<void> {
+  if (Logger.shutdownLogger) {
+    await Logger.shutdownLogger();
+  }
+}
 
 
 /**

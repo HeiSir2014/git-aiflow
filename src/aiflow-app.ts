@@ -14,7 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
 import readline from 'readline';
-import { logger } from './logger.js';
+import { logger, shutdownLogger } from './logger.js';
 import { readFileSync } from 'fs';
 import crypto from 'crypto';
 /**
@@ -182,7 +182,7 @@ export abstract class BaseAiflowApp {
       // Stage selected files
       console.log(`\n${ColorUtil.UI_COLORS.emoji('📦')} ${ColorUtil.LOG_COLORS.info('Staging selected files...')}`);
       this.git.addFiles(selectedFiles.map(f => f.path));
-      
+
       console.log(ColorUtil.success(`Successfully staged ${selectedFiles.length} file(s).`));
       return true;
 
@@ -574,7 +574,7 @@ ${'-'.repeat(50)}
 
       // Dynamic countdown before creating MR
       await ColorUtil.countdown(3, 'Creating merge request in', 'Creating merge request now...');
-      
+
       const mrTitle = title;
       const mrUrl = await this.gitPlatform.createMergeRequest(
         branchName,
@@ -642,7 +642,7 @@ export class GitAutoMrApp extends BaseAiflowApp {
     const version = packageJson.version;
     const name = packageJson.name;
     const description = packageJson.description;
-    
+
     logger.info(`
 🚀 ${name} v${version}
 
@@ -820,3 +820,25 @@ isMain && GitAutoMrApp.main().catch((error) => {
   logger.error('❌ Unhandled error:', error);
   process.exit(1);
 });
+// Handle termination signals
+process.on('SIGTERM', async () => {
+  logger.info('Received SIGTERM signal, shutting down service...');
+  await shutdownLogger();
+});
+
+process.on('SIGINT', async () => {
+  logger.info('Received SIGINT signal, shutting down service...');
+  await shutdownLogger();
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', async (error: Error) => {
+  logger.error('Uncaught exception', error);
+  await shutdownLogger();
+});
+
+process.on('unhandledRejection', async (reason: any, promise: Promise<any>) => {
+  logger.error('Unhandled Promise rejection', { reason, promise });
+  await shutdownLogger();
+});
+

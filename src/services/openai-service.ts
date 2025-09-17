@@ -513,11 +513,11 @@ ACCURACY REQUIREMENTS:
     // Pattern-based matching for variants and custom deployments
     const MODEL_PATTERNS: Array<{ pattern: RegExp, limit: number, description: string }> = [
       // DeepSeek variants
-      { pattern: /^(x)?deepseek[-_]?v?3\.?1/i, limit: 128000, description: 'DeepSeek V3.1 variants' },
-      { pattern: /^(x)?deepseek[-_]?v?3/i, limit: 128000, description: 'DeepSeek V3 variants' },
-      { pattern: /^(x)?deepseek[-_]?v?2\.?5?/i, limit: 128000, description: 'DeepSeek V2/V2.5 variants' },
-      { pattern: /^(x)?deepseek[-_]?coder/i, limit: 128000, description: 'DeepSeek Coder variants' },
-      { pattern: /^(x)?deepseek/i, limit: 32768, description: 'Other DeepSeek variants' },
+      { pattern: /^(x)?deepseek[-_]?v?3\.?1/i, limit: 32000, description: 'DeepSeek V3.1 variants' },
+      { pattern: /^(x)?deepseek[-_]?v?3/i, limit: 32000, description: 'DeepSeek V3 variants' },
+      { pattern: /^(x)?deepseek[-_]?v?2\.?5?/i, limit: 8000, description: 'DeepSeek V2/V2.5 variants' },
+      { pattern: /^(x)?deepseek[-_]?coder/i, limit: 32000, description: 'DeepSeek Coder variants' },
+      { pattern: /^(x)?deepseek/i, limit: 8000, description: 'Other DeepSeek variants' },
 
       // Qwen variants
       { pattern: /^qwen[-_]?3[-_]?coder/i, limit: 128000, description: 'Qwen3 Coder variants' },

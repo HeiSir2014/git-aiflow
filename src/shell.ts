@@ -53,7 +53,10 @@ export class Shell {
       const result: SpawnSyncReturns<string> = spawnSync(
         command,
         commandArgs,
-        { encoding: "utf-8", shell: false, cwd: process.cwd() }
+        {
+          encoding: "utf-8", shell: false, cwd: process.cwd(),
+          maxBuffer: 1024 * 1024 * 10,
+        }
       );
 
       const duration = Date.now() - startTime;
