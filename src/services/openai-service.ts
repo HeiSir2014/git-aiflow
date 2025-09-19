@@ -231,9 +231,45 @@ OUTPUT REQUIREMENTS:
    - Concise, descriptive title summarizing the change
    - Use appropriate prefixes for maintenance changes
 
-CRITICAL OUTPUT FORMAT:
-Return ONLY this JSON structure with no additional text, comments, or markdown wrappers:
-{"commit":"<message>", "branch":"<type/description>", "description":"<detailed-description>", "title":"<title>"}
+CRITICAL OUTPUT FORMAT - READ CAREFULLY:
+You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
+
+REQUIRED JSON STRUCTURE (copy this format exactly):
+{
+  "commit": "COMMIT MESSAGE HERE",
+  "branch": "BRANCH NAME HERE", 
+  "description": "MR DESCRIPTION HERE",
+  "title": "MR TITLE HERE"
+}
+
+FIELD VALIDATION RULES:
+- "commit": conventional commit format (type(scope): description)
+- "branch": MUST be type/kebab-case-description format
+- "description": markdown formatted MR description with sections
+- "title": concise summary title
+
+FORBIDDEN FORMATS (will cause errors):
+❌ {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
+❌ Any text before or after the JSON
+❌ Markdown code blocks like \`\`\`json
+❌ Comments or explanations
+❌ Extra fields beyond the 4 required ones
+
+VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
+
+JSON SCHEMA REQUIREMENT:
+Your response must match this exact schema:
+{
+  "type": "object",
+  "properties": {
+    "commit": {"type": "string"},
+    "branch": {"type": "string"},
+    "description": {"type": "string"},
+    "title": {"type": "string"}
+  },
+  "required": ["commit", "branch", "description", "title"],
+  "additionalProperties": false
+}
 
 ACCURACY REQUIREMENTS:
 - Base analysis strictly on visible diff content
@@ -244,7 +280,14 @@ ACCURACY REQUIREMENTS:
         },
         {
           role: "user",
-          content: `Analyze this git diff and generate commit message, branch name, MR description and MR title, next is the diff raw data:`,
+          content: `TASK: Analyze the git diff below and return ONLY the JSON object with commit, branch, description, and title fields.
+
+REMEMBER: 
+- Return ONLY valid JSON, no other text
+- Use exact field names: "commit", "branch", "description", "title"
+- No markdown wrappers or explanations
+
+Git diff data follows:`,
         },
         {
           role: "user",
@@ -263,6 +306,7 @@ ACCURACY REQUIREMENTS:
       },
       body
     );
+    logger.debug(`OpenAI direct processing response: ${resp}`);
     const rawContent = resp.choices[0].message.content;
     logger.debug(`OpenAI direct processing response: ${rawContent}`);
 
@@ -285,7 +329,8 @@ ACCURACY REQUIREMENTS:
         title: content.title || content.commit.replace(/\r|\n/g, '').trim().substring(0, 50)
       } as CommitGenerationResult;
     } catch (error) {
-      logger.error("Failed to parse AI response:", cleanContent);
+      logger.info(`cleanContent: ${cleanContent}`);
+      logger.error("Failed to parse AI response:", error);
       throw new Error(`Invalid JSON response from AI: ${error}`);
     }
   }
@@ -827,9 +872,39 @@ OUTPUT REQUIREMENTS:
    - Concise title summarizing the changes in this portion
    - Use appropriate technical terminology
 
-CRITICAL OUTPUT FORMAT:
-Return ONLY this JSON structure with no additional text:
-{"commit":"<message>", "branch":"<type/description>", "description":"<detailed-description>", "title":"<title>"}
+CRITICAL OUTPUT FORMAT - READ CAREFULLY:
+You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
+
+REQUIRED JSON STRUCTURE (copy this format exactly):
+{
+  "commit": "COMMIT MESSAGE HERE",
+  "branch": "BRANCH NAME HERE", 
+  "description": "MR DESCRIPTION HERE",
+  "title": "MR TITLE HERE"
+}
+
+FORBIDDEN FORMATS (will cause errors):
+❌ {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
+❌ Any text before or after the JSON
+❌ Markdown code blocks like \`\`\`json
+❌ Comments or explanations
+❌ Extra fields beyond the 4 required ones
+
+VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
+
+JSON SCHEMA REQUIREMENT:
+Your response must match this exact schema:
+{
+  "type": "object",
+  "properties": {
+    "commit": {"type": "string"},
+    "branch": {"type": "string"},
+    "description": {"type": "string"},
+    "title": {"type": "string"}
+  },
+  "required": ["commit", "branch", "description", "title"],
+  "additionalProperties": false
+}
 
 ACCURACY REQUIREMENTS:
 - Analyze strictly based on visible diff content in this portion
@@ -840,7 +915,14 @@ ACCURACY REQUIREMENTS:
         },
         {
           role: "user",
-          content: `Analyze this git diff (${filesInfo}) and generate commit message, branch name, MR description and MR title, next is the diff raw data:`,
+          content: `TASK: Analyze the git diff (${filesInfo}) below and return ONLY the JSON object with commit, branch, description, and title fields.
+
+REMEMBER: 
+- Return ONLY valid JSON, no other text
+- Use exact field names: "commit", "branch", "description", "title"
+- No markdown wrappers or explanations
+
+Git diff data follows:`,
         },
         {
           role: "user",
