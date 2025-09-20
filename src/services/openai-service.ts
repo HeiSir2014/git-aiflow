@@ -38,6 +38,22 @@ interface BatchGenerationResult {
 }
 
 /**
+ * Configuration for generating OpenAI API messages
+ */
+interface MessageConfig {
+  systemPrompt: string;
+  userPrompt: string;
+  diffContent: string;
+}
+
+/**
+ * Standard OpenAI API response structure
+ */
+interface OpenAiResponse {
+  choices: { message: { content: string } }[];
+}
+
+/**
  * OpenAI API service for generating commit message and branch name
  */
 export class OpenAiService {
@@ -178,161 +194,24 @@ export class OpenAiService {
    * @returns Promise resolving to commit generation result
    */
   private async generateDirectCommitAndBranch(diff: string, language: string): Promise<CommitGenerationResult> {
-    type OpenAiResp = { choices: { message: { content: string } }[] };
+    const systemPrompt = this.buildSystemPrompt(language);
+    const userPrompt = this.buildUserPrompt();
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert Git commit analyzer. Your task is to analyze the provided git diff and generate accurate, professional commit information.
+    const config: MessageConfig = {
+      systemPrompt,
+      userPrompt,
+      diffContent: diff
+    };
 
-LANGUAGE REQUIREMENT: Generate all content in ${this.getLanguageName(language)} (${language}). For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
+    const rawContent = await this.sendOpenAiRequest(config);
+    const content = this.parseOpenAiResponse(rawContent, 'direct processing');
 
-ANALYSIS INSTRUCTIONS:
-1. Carefully examine the git diff to identify:
-   - Exact files that were modified, added, or deleted
-   - Specific code changes (functions, variables, imports, etc.)
-   - The purpose and scope of the changes
-   - Whether changes are features, fixes, documentation, styling, refactoring, tests, or maintenance
-
-2. Base your analysis ONLY on what you can see in the diff - do not make assumptions about functionality not visible in the changes.
-
-OUTPUT REQUIREMENTS:
-
-1. COMMIT MESSAGE (${this.getLanguageName(language)}):
-   - MUST follow conventional commits: type(scope): description
-   - Types: feat, fix, docs, style, refactor, test, chore
-   - Scope: optional, use file/module name if clear
-   - Description: imperative mood, under 72 characters
-   - Examples: "feat(auth): add user login validation", "fix(api): resolve null pointer exception"
-
-2. BRANCH NAME (ALWAYS English):
-   - EXACT format: type/short-description
-   - Type: feat, fix, docs, style, refactor, test, chore
-   - Description: 2-4 words, kebab-case, descriptive
-   - Examples: feat/user-auth, fix/login-bug, docs/api-guide
-   - NO deviations from this format
-
-3. MR DESCRIPTION (${this.getLanguageName(language)}):
-   Structure with these sections:
-   ## What Changed
-   - List specific changes made (based on diff analysis)
-   
-   ## Why
-   - Explain the reason/purpose for these changes
-   
-   ## How to Test
-   - Provide relevant testing instructions
-   
-   Use markdown formatting, be specific and factual.
-
-4. MR TITLE (${this.getLanguageName(language)}):
-   - Concise, descriptive title summarizing the change
-   - Use appropriate prefixes for maintenance changes
-
-CRITICAL OUTPUT FORMAT - READ CAREFULLY:
-You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
-
-REQUIRED JSON STRUCTURE (copy this format exactly):
-{
-  "commit": "COMMIT MESSAGE HERE",
-  "branch": "BRANCH NAME HERE", 
-  "description": "MR DESCRIPTION HERE",
-  "title": "MR TITLE HERE"
-}
-
-FIELD VALIDATION RULES:
-- "commit": conventional commit format (type(scope): description)
-- "branch": MUST be type/kebab-case-description format
-- "description": markdown formatted MR description with sections
-- "title": concise summary title
-
-FORBIDDEN FORMATS (will cause errors):
-❌ {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
-❌ Any text before or after the JSON
-❌ Markdown code blocks like \`\`\`json
-❌ Comments or explanations
-❌ Extra fields beyond the 4 required ones
-
-VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
-
-JSON SCHEMA REQUIREMENT:
-Your response must match this exact schema:
-{
-  "type": "object",
-  "properties": {
-    "commit": {"type": "string"},
-    "branch": {"type": "string"},
-    "description": {"type": "string"},
-    "title": {"type": "string"}
-  },
-  "required": ["commit", "branch", "description", "title"],
-  "additionalProperties": false
-}
-
-ACCURACY REQUIREMENTS:
-- Base analysis strictly on visible diff content
-- Do not invent or assume functionality not shown
-- Use precise technical terminology
-- Ensure commit type matches the actual changes
-- Keep descriptions factual and specific`,
-        },
-        {
-          role: "user",
-          content: `TASK: Analyze the git diff below and return ONLY the JSON object with commit, branch, description, and title fields.
-
-REMEMBER: 
-- Return ONLY valid JSON, no other text
-- Use exact field names: "commit", "branch", "description", "title"
-- No markdown wrappers or explanations
-
-Git diff data follows:`,
-        },
-        {
-          role: "user",
-          content: diff,
-        },
-      ],
-      temperature: 0.1, // Low temperature for consistent, accurate commit messages
-    });
-    logger.debug(`OpenAI direct processing request body size: ${body.length} characters`);
-    const resp = await this.http.requestJson<OpenAiResp>(
-      `${this.apiUrl}/chat/completions`,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body
-    );
-    logger.debug(`OpenAI direct processing response: ${resp}`);
-    const rawContent = resp.choices[0].message.content;
-    logger.debug(`OpenAI direct processing response: ${rawContent}`);
-
-    // Clean up the response - remove markdown code blocks if present
-    let cleanContent = rawContent.trim();
-
-    // Remove ```json and ``` markers if present
-    if (cleanContent.startsWith('```json')) {
-      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanContent.startsWith('```')) {
-      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-
-    try {
-      const content = JSON.parse(cleanContent);
-      return {
-        commit: content.commit,
-        branch: content.branch,
-        description: content.description || '',
-        title: content.title || content.commit.replace(/\r|\n/g, '').trim().substring(0, 50)
-      } as CommitGenerationResult;
-    } catch (error) {
-      logger.info(`cleanContent: ${cleanContent}`);
-      logger.error("Failed to parse AI response:", error);
-      throw new Error(`Invalid JSON response from AI: ${error}`);
-    }
+    return {
+      commit: content.commit,
+      branch: content.branch,
+      description: content.description || '',
+      title: content.title || (content.commit && content.commit.replace(/\r|\n/g, '').trim().substring(0, 50)) || ''
+    } as CommitGenerationResult;
   }
 
   /**
@@ -820,153 +699,26 @@ Git diff data follows:`,
       ? `involving ${diffChunk.files.length} files: ${diffChunk.files.slice(0, MAX_DISPLAYED_FILES).join(', ')}${diffChunk.files.length > MAX_DISPLAYED_FILES ? ' etc.' : ''}`
       : `file: ${diffChunk.files[0] || 'unknown'}`;
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert Git commit analyzer. Your task is to analyze this partial git diff and generate accurate commit information for the specific changes shown.
+    const systemPrompt = this.buildSystemPrompt(language, filesInfo);
+    const userPrompt = this.buildUserPrompt(filesInfo);
 
-LANGUAGE REQUIREMENT: Generate all content in ${this.getLanguageName(language)} (${language}). For English, use standard technical terminology. For Chinese, use professional technical Chinese.
-
-CONTEXT: This is a partial diff (${filesInfo}). Analyze ONLY the changes visible in this specific portion.
-
-ANALYSIS INSTRUCTIONS:
-1. Examine the provided diff section to identify:
-   - Specific files and changes shown in this portion
-   - Code modifications (functions, variables, imports, etc.)
-   - The type and scope of changes visible
-   - Whether changes represent features, fixes, documentation, styling, refactoring, tests, or maintenance
-
-2. Focus ONLY on what is visible in this diff portion - do not make assumptions about the broader codebase.
-
-OUTPUT REQUIREMENTS:
-
-1. COMMIT MESSAGE (${this.getLanguageName(language)}):
-   - Follow conventional commits: type(scope): description
-   - Types: feat, fix, docs, style, refactor, test, chore
-   - Scope: use file/module name from this diff portion
-   - Description: imperative mood, under 72 characters, specific to these changes
-   - Example: "feat(auth): add login validation logic"
-
-2. BRANCH NAME (ALWAYS English):
-   - EXACT format: type/short-description
-   - Type: feat, fix, docs, style, refactor, test, chore
-   - Description: 2-4 words, kebab-case, specific to these changes
-   - Examples: feat/user-auth, fix/validation-bug, refactor/auth-logic
-
-3. MR DESCRIPTION (${this.getLanguageName(language)}):
-   Structure with these sections:
-   ## What Changed
-   - List specific changes visible in this diff portion
-   
-   ## Why
-   - Explain the purpose based on the changes shown
-   
-   ## How to Test
-   - Provide testing instructions relevant to these specific changes
-   
-   Be factual and specific to the visible changes.
-
-4. MR TITLE (${this.getLanguageName(language)}):
-   - Concise title summarizing the changes in this portion
-   - Use appropriate technical terminology
-
-CRITICAL OUTPUT FORMAT - READ CAREFULLY:
-You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
-
-REQUIRED JSON STRUCTURE (copy this format exactly):
-{
-  "commit": "COMMIT MESSAGE HERE",
-  "branch": "BRANCH NAME HERE", 
-  "description": "MR DESCRIPTION HERE",
-  "title": "MR TITLE HERE"
-}
-
-FORBIDDEN FORMATS (will cause errors):
-❌ {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
-❌ Any text before or after the JSON
-❌ Markdown code blocks like \`\`\`json
-❌ Comments or explanations
-❌ Extra fields beyond the 4 required ones
-
-VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
-
-JSON SCHEMA REQUIREMENT:
-Your response must match this exact schema:
-{
-  "type": "object",
-  "properties": {
-    "commit": {"type": "string"},
-    "branch": {"type": "string"},
-    "description": {"type": "string"},
-    "title": {"type": "string"}
-  },
-  "required": ["commit", "branch", "description", "title"],
-  "additionalProperties": false
-}
-
-ACCURACY REQUIREMENTS:
-- Analyze strictly based on visible diff content in this portion
-- Do not invent functionality not shown in the diff
-- Use precise technical terminology for the specific changes
-- Ensure commit type accurately reflects the visible changes
-- Keep descriptions factual and specific to this diff portion`,
-        },
-        {
-          role: "user",
-          content: `TASK: Analyze the git diff (${filesInfo}) below and return ONLY the JSON object with commit, branch, description, and title fields.
-
-REMEMBER: 
-- Return ONLY valid JSON, no other text
-- Use exact field names: "commit", "branch", "description", "title"
-- No markdown wrappers or explanations
-
-Git diff data follows:`,
-        },
-        {
-          role: "user",
-          content: diffChunk.content,
-        },
-      ],
-      temperature: 0.1,
-    });
+    const config: MessageConfig = {
+      systemPrompt,
+      userPrompt,
+      diffContent: diffChunk.content
+    };
 
     logger.debug(`Generating commit info for diff chunk containing ${diffChunk.files.length} files`);
 
-    const resp = await this.http.requestJson<{ choices: { message: { content: string } }[] }>(
-      `${this.apiUrl}/chat/completions`,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body
-    );
+    const rawContent = await this.sendOpenAiRequest(config);
+    const content = this.parseOpenAiResponse(rawContent, 'batch processing');
 
-    const rawContent = resp.choices[0].message.content;
-    logger.debug(`Batch AI response: ${rawContent}`);
-
-    // Clean up response content
-    let cleanContent = rawContent.trim();
-    if (cleanContent.startsWith('```json')) {
-      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanContent.startsWith('```')) {
-      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-
-    try {
-      const content = JSON.parse(cleanContent);
-      return {
-        commit: content.commit,
-        branch: content.branch,
-        description: content.description || '',
-        title: content.title
-      };
-    } catch (error) {
-      logger.error(`Failed to parse batch AI response:`, cleanContent);
-      throw new Error(`Invalid JSON response from AI in batch processing: ${error}`);
-    }
+    return {
+      commit: content.commit,
+      branch: content.branch,
+      description: content.description || '',
+      title: content.title
+    };
   }
 
   /**
@@ -1135,6 +887,195 @@ ${batchSummaries}`,
     logger.debug(`Reserved tokens calculation: system=${SYSTEM_PROMPT_TOKENS}, response=${RESPONSE_TOKENS}, buffer=${bufferTokens} (${(bufferPercentage * 100).toFixed(1)}%), total=${totalReserved}`);
 
     return totalReserved;
+  }
+
+  /**
+   * Send request to OpenAI API with standard configuration
+   * 
+   * @param config Message configuration for the API request
+   * @returns Promise resolving to the raw response content
+   */
+  private async sendOpenAiRequest(config: MessageConfig): Promise<string> {
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        {
+          role: "system",
+          content: config.systemPrompt
+        },
+        {
+          role: "user",
+          content: config.userPrompt
+        },
+        {
+          role: "user",
+          content: config.diffContent
+        }
+      ],
+      temperature: 0.1
+    });
+
+    logger.debug(`OpenAI request body size: ${body.length} characters`);
+
+    const response = await this.http.requestJson<OpenAiResponse>(
+      `${this.apiUrl}/chat/completions`,
+      "POST",
+      {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`
+      },
+      body
+    );
+
+    const rawContent = response.choices[0].message.content;
+    logger.debug(`OpenAI response: ${rawContent}`);
+
+    return rawContent;
+  }
+
+  /**
+   * Clean and parse OpenAI response content
+   * 
+   * @param rawContent Raw response content from OpenAI
+   * @param errorContext Context string for error logging
+   * @returns Parsed JSON object
+   */
+  private parseOpenAiResponse(rawContent: string, errorContext: string): any {
+    // Clean up the response - remove markdown code blocks if present
+    let cleanContent = rawContent.trim();
+
+    // Remove ```json and ``` markers if present
+    if (cleanContent.startsWith('```json')) {
+      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (cleanContent.startsWith('```')) {
+      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    try {
+      return JSON.parse(cleanContent);
+    } catch (error) {
+      logger.error(`Failed to parse ${errorContext} AI response:`, cleanContent);
+      throw new Error(`Invalid JSON response from AI in ${errorContext}: ${error}`);
+    }
+  }
+
+  /**
+   * Build system prompt for commit analysis
+   * 
+   * @param language Target language for generated content
+   * @param contextInfo Optional context information for partial diffs
+   * @returns System prompt string
+   */
+  private buildSystemPrompt(language: string, contextInfo?: string): string {
+    const languageName = this.getLanguageName(language);
+    const contextSection = contextInfo
+      ? `CONTEXT: This is a partial diff (${contextInfo}). Analyze ONLY the changes visible in this specific portion.\n\n`
+      : '';
+
+    return `You are an expert Git commit analyzer. Your task is to analyze the provided git diff and generate accurate, professional commit information.
+
+LANGUAGE REQUIREMENT: Generate all content in ${languageName} (${language}). For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
+
+${contextSection}ANALYSIS INSTRUCTIONS:
+1. Carefully examine the git diff to identify:
+   - Exact files that were modified, added, or deleted
+   - Specific code changes (functions, variables, imports, etc.)
+   - The purpose and scope of the changes
+   - Whether changes are features, fixes, documentation, styling, refactoring, tests, or maintenance
+
+2. Base your analysis ONLY on what you can see in the diff:
+   - Do not invent or assume functionality not shown
+   - Use precise technical terminology
+   - Ensure commit type matches the actual changes
+   - Keep descriptions factual and specific
+
+OUTPUT REQUIREMENTS:
+
+1. COMMIT MESSAGE (generate in ${languageName} (${language})):
+   - MUST follow conventional commits: type(scope): description
+   - Types: feat, fix, docs, style, refactor, test, chore
+   - Scope: optional, use file/module name if clear
+   - Description: imperative mood, under 72 characters
+   - Examples: "feat(auth): add user login validation", "fix(api): resolve null pointer exception"
+
+2. BRANCH NAME (ALWAYS English, generate in English):
+   - EXACT format: type/short-description
+   - Type: feat, fix, docs, style, refactor, test, chore
+   - Description: 2-4 words, kebab-case, descriptive
+   - Examples: feat/user-auth, fix/login-bug, docs/api-guide
+   - NO deviations from this format
+
+3. MR DESCRIPTION (generate in ${languageName} (${language})):
+   Structure with these sections(generate in ${languageName} (${language}) with markdown formatting):
+   ## What Changed
+   - List specific changes made (based on diff analysis)
+   
+   ## Why
+   - Explain the reason/purpose for these changes
+   
+   ## How to Test
+   - Provide relevant testing instructions
+   
+   Use markdown formatting, be specific and factual.
+
+4. MR TITLE (generate in ${languageName} (${language})):
+   - Concise, descriptive title summarizing the change
+   - Use appropriate prefixes for maintenance changes
+
+CRITICAL OUTPUT FORMAT - READ CAREFULLY:
+You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
+
+REQUIRED JSON STRUCTURE (copy this format exactly):
+{
+  "commit": "<COMMIT MESSAGE> placeholder here",
+  "branch": "<BRANCH NAME> placeholder here", 
+  "description": "<MR DESCRIPTION> placeholder here",
+  "title": "<MR TITLE> placeholder here"
+}
+
+FORBIDDEN FORMATS (will cause errors):
+ - {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
+ - Any text before or after the JSON
+ - Markdown code blocks like \`\`\`json
+ - Comments or explanations
+ - Extra fields beyond the 4 required ones
+
+VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
+
+JSON SCHEMA REQUIREMENT:
+Your response must match this exact schema:
+{
+  "type": "object",
+  "properties": {
+    "commit": {"type": "string"},
+    "branch": {"type": "string"},
+    "description": {"type": "string"},
+    "title": {"type": "string"}
+  },
+  "required": ["commit", "branch", "description", "title"],
+  "additionalProperties": false
+}`;
+  }
+
+  /**
+   * Build user prompt for commit analysis
+   * 
+   * @param contextInfo Optional context information for partial diffs
+   * @returns User prompt string
+   */
+  private buildUserPrompt(contextInfo?: string): string {
+    const taskDescription = contextInfo
+      ? `TASK: Analyze the git diff (${contextInfo}) below and return ONLY the JSON object with commit, branch, description, and title fields.`
+      : 'TASK: Analyze the git diff below and return ONLY the JSON object with commit, branch, description, and title fields.';
+
+    return `${taskDescription}
+
+REMEMBER: 
+- Return ONLY valid JSON, no other text
+- Use exact field names: "commit", "branch", "description", "title"
+- No markdown wrappers or explanations
+
+Git diff data follows:`;
   }
 
   /**
