@@ -200,21 +200,21 @@ ANALYSIS INSTRUCTIONS:
 
 OUTPUT REQUIREMENTS:
 
-1. COMMIT MESSAGE (${this.getLanguageName(language)}):
+1. COMMIT MESSAGE (generate in ${this.getLanguageName(language)} (${language})):
    - MUST follow conventional commits: type(scope): description
    - Types: feat, fix, docs, style, refactor, test, chore
    - Scope: optional, use file/module name if clear
    - Description: imperative mood, under 72 characters
    - Examples: "feat(auth): add user login validation", "fix(api): resolve null pointer exception"
 
-2. BRANCH NAME (ALWAYS English):
+2. BRANCH NAME (ALWAYS English, generate in English):
    - EXACT format: type/short-description
    - Type: feat, fix, docs, style, refactor, test, chore
    - Description: 2-4 words, kebab-case, descriptive
    - Examples: feat/user-auth, fix/login-bug, docs/api-guide
    - NO deviations from this format
 
-3. MR DESCRIPTION (${this.getLanguageName(language)}):
+3. MR DESCRIPTION (generate in ${this.getLanguageName(language)} (${language})):
    Structure with these sections:
    ## What Changed
    - List specific changes made (based on diff analysis)
@@ -227,7 +227,7 @@ OUTPUT REQUIREMENTS:
    
    Use markdown formatting, be specific and factual.
 
-4. MR TITLE (${this.getLanguageName(language)}):
+4. MR TITLE (generate in ${this.getLanguageName(language)} (${language})):
    - Concise, descriptive title summarizing the change
    - Use appropriate prefixes for maintenance changes
 
@@ -842,20 +842,20 @@ ANALYSIS INSTRUCTIONS:
 
 OUTPUT REQUIREMENTS:
 
-1. COMMIT MESSAGE (${this.getLanguageName(language)}):
+1. COMMIT MESSAGE (generate in ${this.getLanguageName(language)} (${language})):
    - Follow conventional commits: type(scope): description
    - Types: feat, fix, docs, style, refactor, test, chore
    - Scope: use file/module name from this diff portion
    - Description: imperative mood, under 72 characters, specific to these changes
    - Example: "feat(auth): add login validation logic"
 
-2. BRANCH NAME (ALWAYS English):
+2. BRANCH NAME (ALWAYS English, generate in English):
    - EXACT format: type/short-description
    - Type: feat, fix, docs, style, refactor, test, chore
    - Description: 2-4 words, kebab-case, specific to these changes
    - Examples: feat/user-auth, fix/validation-bug, refactor/auth-logic
 
-3. MR DESCRIPTION (${this.getLanguageName(language)}):
+3. MR DESCRIPTION (generate in ${this.getLanguageName(language)} (${language})):
    Structure with these sections:
    ## What Changed
    - List specific changes visible in this diff portion
@@ -868,7 +868,7 @@ OUTPUT REQUIREMENTS:
    
    Be factual and specific to the visible changes.
 
-4. MR TITLE (${this.getLanguageName(language)}):
+4. MR TITLE (generate in ${this.getLanguageName(language)} (${language})):
    - Concise title summarizing the changes in this portion
    - Use appropriate technical terminology
 
@@ -877,10 +877,10 @@ You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other t
 
 REQUIRED JSON STRUCTURE (copy this format exactly):
 {
-  "commit": "COMMIT MESSAGE HERE",
-  "branch": "BRANCH NAME HERE", 
-  "description": "MR DESCRIPTION HERE",
-  "title": "MR TITLE HERE"
+  "commit": "<COMMIT MESSAGE> HERE",
+  "branch": "<BRANCH NAME> HERE", 
+  "description": "<MR DESCRIPTION> HERE",
+  "title": "<MR TITLE> HERE"
 }
 
 FORBIDDEN FORMATS (will cause errors):
