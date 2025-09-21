@@ -60,7 +60,7 @@
 - **npm**: >= 7.0.0
 - **Git**: 已配置且能访问远程仓库
 - **Git 托管平台**: GitHub、GitLab、Gitee 等平台的 Personal Access Token
-- **OpenAI**: 有效的 API Key
+- **OpenAI**: 有效的 API Key（💡 推荐：查看 [免费模型配置指南](docs/free-models.md) 获取免费API）
 
 ## 🔧 安装配置
 
@@ -118,6 +118,7 @@ openai:
   baseUrl: https://api.openai.com/v1
   
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
+  # 💡 免费模型推荐：查看 docs/free-models.md 获取免费API配置
   model: gpt-3.5-turbo
 
 # Git 访问令牌配置 - 支持多个Git托管平台
@@ -743,6 +744,12 @@ npm run test:coverage
 3. 提交变更 (`git commit -m 'Add amazing feature'`)
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 创建 Pull Request
+
+## 📚 扩展资源
+
+- 📖 **[免费模型配置指南](docs/free-models.md)** - 使用免费AI模型，降低使用成本
+- 🔧 **[配置文件示例](config.example.yaml)** - 完整配置参考
+- 📋 **[更新日志](CHANGELOG.md)** - 版本更新记录
 
 ## 📞 支持
 
