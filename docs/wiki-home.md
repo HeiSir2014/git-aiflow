@@ -128,6 +128,8 @@ aiflow init
 
 ```
 
+💡 **免费模型提醒**：配置时可以使用免费AI模型降低成本，详见 [免费模型配置指南](free-models.md)，推荐首选 **Qwen3-Coder**！
+
 ### 第三步：开始使用
 ```bash
 # 暂存您的代码变更
@@ -268,6 +270,9 @@ openai:
   model: gpt-4o-mini  # 性价比最佳
   # model: gpt-3.5-turbo  # 经济实惠
   # model: gpt-4  # 最高质量
+  
+  # 💡 免费模型推荐：查看 docs/free-models.md
+  # 🥇 首选：deepseek/deepseek-chat-v3.1:free (OpenRouter)
 ```
 
 ## 🎯 使用场景详解
@@ -622,6 +627,7 @@ aiflow-conan zterm && aiflow-conan winusb && aiflow-conan boost
 
 ### 官方文档
 - [📖 完整用户指南](README.md)
+- [💡 免费模型配置指南](free-models.md) - **推荐首选 Qwen3-Coder、Deepseek-v3.1**
 - [🔧 配置参考](config.example.yaml)
 - [🌍 English Documentation](README-EN.md)
 

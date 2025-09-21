@@ -57,7 +57,7 @@ Specialized automation tool for Conan package version updates.
 - **npm**: >= 7.0.0
 - **Git**: Configured with access to remote repositories
 - **Git Hosting Platforms**: Personal Access Tokens for GitHub, GitLab, Gitee, etc.
-- **OpenAI**: Valid API Key
+- **OpenAI**: Valid API Key (💡 Recommended: Check [Free Models Guide](docs/free-models.md) for free API options)
 
 ## 🔧 Installation & Setup
 
@@ -115,6 +115,7 @@ openai:
   baseUrl: https://api.openai.com/v1
   
   # OpenAI model name (required) - specify AI model like gpt-3.5-turbo, gpt-4
+  # 💡 Free Models Available: Check docs/free-models.md for free API configurations
   model: gpt-4o-mini
 
 # Git Access Tokens Configuration - support for multiple Git hosting platforms
@@ -725,6 +726,12 @@ Issues and Pull Requests are welcome!
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Create a Pull Request
+
+## 📚 Extended Resources
+
+- 📖 **[Free Models Configuration Guide](docs/free-models.md)** - Use free AI models to reduce costs
+- 🔧 **[Configuration Examples](config.example.yaml)** - Complete configuration reference
+- 📋 **[Changelog](CHANGELOG.md)** - Version update history
 
 ## 📞 Support
 
