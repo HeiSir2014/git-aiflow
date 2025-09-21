@@ -202,7 +202,7 @@ jobs:
           
           \`\`\`bash
           # Initialize configuration
-          aiflow init
+          aiflow init -g
           
           # Stage your changes and create MR
           git add .
