@@ -1073,7 +1073,8 @@ ${batchSummaries}`,
 
 LANGUAGE REQUIREMENT: Generate all content in \`${languageName}\`. For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
 
-${contextSection}ANALYSIS INSTRUCTIONS:
+${contextSection}
+ANALYSIS INSTRUCTIONS:
 1. Carefully examine the git diff to identify:
    - Exact files that were modified, added, or deleted
    - Specific code changes (functions, variables, imports, etc.)
@@ -1106,14 +1107,17 @@ OUTPUT REQUIREMENTS:
    Structure with these sections:
    ## What Changed
    - List specific changes made (based on diff analysis)
-   
    ## Why
    - Explain the reason/purpose for these changes
-   
    ## How to Test
    - Provide relevant testing instructions
-   
-   Use markdown formatting, be specific and factual. Generate all sections ('What Changed', 'Why', 'How to Test') in \`${languageName}\`.
+
+  Use markdown formatting, be specific and factual.
+   **IMPORTANT:** The section headings (e.g., 'What Changed', 'Why', 'How to Test') MUST also be translated and output in ${languageName}, not just the content under them.
+   **EXAMPLE FOR CHINESE (Simplified):** 
+      Use \`## 变更内容\` instead of \`## What Changed\`
+      Use \`## 原因\` instead of \`## Why\`
+      Use \`## 测试方法\` instead of \`## How to Test\`
 
 4. MR TITLE (generate in ${languageName}):
    - Concise, descriptive title summarizing the change
