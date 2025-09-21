@@ -14,9 +14,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboard from 'clipboardy';
 import readline from 'readline';
-import { logger, shutdownLogger } from './logger.js';
+import { logger } from './logger.js';
 import { readFileSync } from 'fs';
 import crypto from 'crypto';
+import { processExit } from './utils/process-exit.js';
 /**
  * Base class for AI-powered Git automation applications
  */
@@ -244,7 +245,7 @@ export abstract class BaseAiflowApp {
   /**
    * Validate required configuration for the application
    */
-  protected validateConfiguration(): void {
+  protected validateConfiguration(validateGitAccessToken: boolean = true): boolean {
     const requiredConfigs = [
       { key: 'openai.key', name: 'OpenAI API Key' },
       { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
@@ -261,20 +262,23 @@ export abstract class BaseAiflowApp {
     }
 
     // Validate Git access token for current repository
-    try {
-      getGitAccessTokenForCurrentRepo(this.config, this.git);
-    } catch (error) {
-      missing.push('Git Access Token for current repository');
-      logger.error(`❌ ${error instanceof Error ? error.message : 'Unknown Git token error'}`);
+    if (validateGitAccessToken) {
+      try {
+        getGitAccessTokenForCurrentRepo(this.config, this.git);
+      } catch (error) {
+        missing.push('Git Access Token for current repository');
+        logger.error(`❌ ${error instanceof Error ? error.message : 'Unknown Git token error'}`);
+      }
     }
 
     if (missing.length > 0) {
       logger.error(`❌ Missing required configuration: ${missing.join(', ')}`);
       logger.error(`💡 Please run 'aiflow init' to configure or check your config files`);
-      process.exit(1);
+      return false;
     }
 
     logger.info(`✅ Configuration validation passed`);
+    return true;
   }
 
   /**
@@ -308,7 +312,7 @@ export abstract class BaseAiflowApp {
 
         if (!filesStaged) {
           console.log(ColorUtil.error("No files were staged. Exiting..."));
-          process.exit(1);
+          return;
         }
 
         // Re-check for staged changes after interactive selection
@@ -317,7 +321,7 @@ export abstract class BaseAiflowApp {
 
         if (!diff) {
           console.error(ColorUtil.error("❌ Still no staged changes found. Please check your selection."));
-          process.exit(1);
+          return;
         }
 
         logger.info(`✅ Successfully staged ${changedFiles.length} file(s). Continuing...`);
@@ -341,7 +345,7 @@ export abstract class BaseAiflowApp {
 
     } catch (error) {
       logger.error(`❌ Error during commit:`, error);
-      process.exit(1);
+      throw error;
     }
   }
 
@@ -359,7 +363,7 @@ export abstract class BaseAiflowApp {
     const baseBranch = this.git.getBaseBranch();
     if (!baseBranch) {
       logger.error("❌ Could not detect base branch. Please specify target branch manually or stage some changes.");
-      process.exit(1);
+      return;
     }
 
     logger.info(`🎯 Detected base branch: ${baseBranch}`);
@@ -370,7 +374,7 @@ export abstract class BaseAiflowApp {
     if (!baseToCurrentDiff) {
       logger.info("✅ No differences found between base branch and current branch.");
       logger.info("💡 Current branch is up to date with base branch.");
-      process.exit(0);
+      return;
     }
 
     logger.info(`📊 Found changes between ${baseBranch} and ${currentBranch}`);
@@ -622,7 +626,7 @@ ${'-'.repeat(50)}
       logger.info("📋 MR info copied to clipboard.");
     } catch (error) {
       logger.error(`❌ Error during MR creation:`, error);
-      process.exit(1);
+      throw error;
     }
   }
 
@@ -743,19 +747,19 @@ Examples:
     // Show version information
     if (args.includes('--version') || args.includes('-v')) {
       GitAutoMrApp.showVersion();
-      process.exit(0);
+      await processExit(0);
     }
 
     // Show CLI help
     if (args.includes('--config-help')) {
       logger.info(getCliHelp());
-      process.exit(0);
+      await processExit(0);
     }
 
     // Show usage if help requested
     if (args.includes('--help') || args.includes('-h')) {
       GitAutoMrApp.showUsage();
-      process.exit(0);
+      await processExit(0);
     }
 
     // Check for updates at startup (for global installations only)
@@ -775,40 +779,19 @@ Examples:
 
     const app = new GitAutoMrApp();
 
-    // Initialize services with configuration
-    await app.initializeServices(cliConfig);
-
-    // For commit-only mode, skip some validations that are not needed
-    if (isCommitOnly) {
-      // Only validate OpenAI configuration for commit-only mode
-      const requiredConfigs = [
-        { key: 'openai.key', name: 'OpenAI API Key' },
-        { key: 'openai.baseUrl', name: 'OpenAI Base URL' },
-        { key: 'openai.model', name: 'OpenAI Model' },
-      ];
-
-      const missing: string[] = [];
-      for (const config of requiredConfigs) {
-        const value = getConfigValue(app.config, config.key, '');
-        if (!value) {
-          missing.push(config.name);
-        }
+    // Initialize services with configuration and run the MR creation workflow
+    try {
+      await app.initializeServices(cliConfig);
+      // For commit-only mode, skip some validations that are not needed
+      if (!app.validateConfiguration(!isCommitOnly)) {
+        await processExit(1);
+        return;
       }
-
-      if (missing.length > 0) {
-        logger.error(`❌ Missing required configuration for commit-only mode: ${missing.join(', ')}`);
-        logger.error(`💡 Please run 'aiflow init' to configure or check your config files`);
-        process.exit(1);
-      }
-
-      logger.info(`✅ Configuration validation passed for commit-only mode`);
-    } else {
-      // Full validation for normal MR creation mode
-      app.validateConfiguration();
+      await app.run();
+    } catch (error) {
+      logger.error('❌ Error during aiflow:', error);
+      await processExit(1);
     }
-
-    // Run the MR creation workflow
-    await app.run();
   }
 }
 
@@ -816,29 +799,25 @@ Examples:
 const run_file = path.basename(process.argv[1]).toLowerCase();
 const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
 const isMain = run_file && (['aiflow', 'git-aiflow', import_file].includes(run_file));
-isMain && GitAutoMrApp.main().catch((error) => {
-  logger.error('❌ Unhandled error:', error);
-  process.exit(1);
+isMain && GitAutoMrApp.main().catch(async (error) => {
+  logger.error('❌ Error during aiflow:', error);
+  await processExit(1, error);
 });
 // Handle termination signals
 process.on('SIGTERM', async () => {
   logger.info('Received SIGTERM signal, shutting down service...');
-  await shutdownLogger();
 });
 
 process.on('SIGINT', async () => {
   logger.info('Received SIGINT signal, shutting down service...');
-  await shutdownLogger();
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', async (error: Error) => {
   logger.error('Uncaught exception', error);
-  await shutdownLogger();
 });
 
 process.on('unhandledRejection', async (reason: any, promise: Promise<any>) => {
   logger.error('Unhandled Promise rejection', { reason, promise });
-  await shutdownLogger();
 });
 

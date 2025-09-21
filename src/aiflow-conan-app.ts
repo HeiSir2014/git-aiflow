@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import clipboardy from 'clipboardy';
 import { readFileSync } from 'fs';
 import { logger } from './logger.js';
+import { processExit } from './utils/process-exit.js';
 /**
  * Conan package update application with automated MR creation
  */
@@ -195,16 +196,20 @@ ${'-'.repeat(50)}
 
     } catch (error) {
       logger.error(`❌ Error during package update:`, error);
-      process.exit(1);
+      await processExit(1, error);
     }
   }
 
   /**
    * Validate configuration (override to add Conan-specific validation)
    */
-  protected validateConfiguration(): void {
+  protected validateConfiguration(validateGitAccessToken: boolean = true): boolean {
     // Call parent validation
-    super.validateConfiguration();
+    const isValid = super.validateConfiguration(validateGitAccessToken);
+
+    if (!isValid) {
+      return false;
+    }
 
     // Additional Conan-specific validation
     const conanBaseUrl = getConfigValue(this.config, 'conan.remoteBaseUrl', '');
@@ -213,6 +218,7 @@ ${'-'.repeat(50)}
     }
 
     logger.info(`✅ Conan configuration validation passed`);
+    return true;
   }
 
   /**
@@ -315,19 +321,19 @@ Files Required:
     // Show version information
     if (args.includes('--version') || args.includes('-v')) {
       ConanPkgUpdateApp.showVersion();
-      process.exit(0);
+      await processExit(0);
     }
 
     // Show CLI help
     if (args.includes('--config-help')) {
       logger.info(getCliHelp());
-      process.exit(0);
+      await processExit(0);
     }
 
     // Show usage if no arguments or help requested
     if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
       ConanPkgUpdateApp.showUsage();
-      process.exit(0);
+      await processExit(0);
     }
 
     // Check for updates at startup (for global installations only)
@@ -351,7 +357,7 @@ Files Required:
     if (!packageName) {
       logger.error('❌ Package name is required');
       ConanPkgUpdateApp.showUsage();
-      process.exit(1);
+      await processExit(1);
     }
 
     logger.info(`🚀 AIFlow Conan Tool`);
@@ -365,7 +371,10 @@ Files Required:
     await app.initializeServices(cliConfig);
 
     // Validate configuration before starting
-    app.validateConfiguration();
+    if (!app.validateConfiguration()) {
+      await processExit(1);
+      return;
+    }
 
     // Get remote from config or CLI or default
     const finalRemote = remote || getConfigValue(app.config, 'conan.remoteRepo', 'repo') || 'repo';
@@ -380,7 +389,7 @@ Files Required:
 const run_file = path.basename(process.argv[1]).toLowerCase();
 const import_file = path.basename(fileURLToPath(import.meta.url)).toLowerCase();
 const isMain = run_file && (['aiflow-conan', 'git-aiflow-conan', import_file].includes(run_file));
-isMain && ConanPkgUpdateApp.main().catch((error) => {
+isMain && ConanPkgUpdateApp.main().catch(async (error) => {
   logger.error('❌ Unhandled error:', error);
-  process.exit(1);
+  await processExit(1, error);
 });

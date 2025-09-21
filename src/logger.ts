@@ -401,13 +401,6 @@ export class Logger {
 
         await Promise.all(closePromises);
       };
-
-      // Don't add automatic signal handlers - let main app handle graceful shutdown
-      // process.on('beforeExit', shutdownLogger);
-      // process.on('SIGINT', async () => {
-      //   await shutdownLogger();
-      //   process.exit(0);
-      // });
     } else if (config) {
       // If config is provided and instance exists, recreate with new config
       Logger.instance.winston = createWinstonLogger({ ...defaultConfig, ...config });
