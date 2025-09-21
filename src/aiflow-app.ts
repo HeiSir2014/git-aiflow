@@ -766,6 +766,7 @@ Examples:
     try {
       const updateChecker = new UpdateChecker();
       await updateChecker.checkAndUpdate();
+      process.env.AIFLOW_VERSION = updateChecker.getVersionInfo().version;
     } catch (error) {
       // Don't let update check failures block the main application
       logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');

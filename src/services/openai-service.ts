@@ -913,7 +913,7 @@ ${batchSummaries}`,
    * @param useTools Whether to include output_with_json tool (default: true)
    * @returns Promise resolving to the raw response content or parsed tool call result
    */
-  private async sendOpenAiRequest(messages: Array<{role: string, content: string}>, useTools: boolean = true): Promise<string> {
+  private async sendOpenAiRequest(messages: Array<{ role: string, content: string }>, useTools: boolean = true): Promise<string> {
     const requestBody: any = {
       model: this.model,
       messages: messages,
@@ -970,17 +970,18 @@ ${batchSummaries}`,
       "POST",
       {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`
+        Authorization: `Bearer ${this.apiKey}`,
+        "User-Agent": `Git-AIFlow/${process.env.AIFLOW_VERSION} ${process.platform}-${process.arch} Node.js/${process.version}`
       },
       body
     );
 
-    if(!response.choices || response.choices.length === 0) {
+    if (!response.choices || response.choices.length === 0) {
       throw new Error("No valid response received from OpenAI API, response.choices is empty");
     }
 
     const message = response.choices[0].message;
-    if(!message) {
+    if (!message) {
       throw new Error("No valid response received from OpenAI API, message is empty");
     }
 
@@ -990,7 +991,7 @@ ${batchSummaries}`,
     logger.debug(`OpenAI response message: ${JSON.stringify(message, null, 0)}`);
     // Check if response contains tool calls (preferred method)
     if (message.tool_calls && message.tool_calls.length > 0) {
-      if(message.content && message.content.trim() !== ''){
+      if (message.content && message.content.trim() !== '') {
         logger.warn(`OpenAI tool call response: content is not empty, content: ${message.content}`);
       }
       const toolCall = message.tool_calls[0];
@@ -998,7 +999,7 @@ ${batchSummaries}`,
         logger.debug(`OpenAI tool call response: ${toolCall.function.arguments}`);
         return toolCall.function.arguments;
       }
-      else{
+      else {
         logger.warn(`OpenAI tool call response: function: ${toolCall.function.name} is not supported, arguments: ${toolCall.function.arguments}`);
       }
     }
@@ -1028,6 +1029,12 @@ ${batchSummaries}`,
       if (parsed && typeof parsed === 'object' &&
         'commit' in parsed && 'branch' in parsed &&
         'description' in parsed && 'title' in parsed) {
+        if (parsed.description) {
+          parsed.description = parsed.description.replace(/\\n/g, '\n').trim();
+        }
+        if (parsed.title) {
+          parsed.title = parsed.title.replace(/\\n/g, '\n').trim();
+        }
         logger.debug(`Successfully parsed tool call response in ${errorContext}`);
         return parsed;
       }
@@ -1048,6 +1055,12 @@ ${batchSummaries}`,
 
     try {
       const parsed = JSON.parse(cleanContent);
+      if (parsed.description) {
+        parsed.description = parsed.description.replace(/\\n/g, '\n').trim();
+      }
+      if (parsed.title) {
+        parsed.title = parsed.title.replace(/\\n/g, '\n').trim();
+      }
       logger.debug(`Successfully parsed traditional JSON response in ${errorContext}`);
       return parsed;
     } catch (error) {
@@ -1107,17 +1120,19 @@ OUTPUT REQUIREMENTS:
    Structure with these sections:
    ## What Changed
    - List specific changes made (based on diff analysis)
+
    ## Why
    - Explain the reason/purpose for these changes
+
    ## How to Test
    - Provide relevant testing instructions
 
   Use markdown formatting, be specific and factual.
    **IMPORTANT:** The section headings (e.g., 'What Changed', 'Why', 'How to Test') MUST also be translated and output in ${languageName}, not just the content under them.
    **EXAMPLE FOR CHINESE (Simplified):** 
-      Use \`## 变更内容\` instead of \`## What Changed\`
-      Use \`## 原因\` instead of \`## Why\`
-      Use \`## 测试方法\` instead of \`## How to Test\`
+      Use '## 变更内容' instead of '## What Changed'
+      Use '## 变更原因' instead of '## Why'
+      Use '## 测试方法' instead of '## How to Test'
 
 4. MR TITLE (generate in ${languageName}):
    - Concise, descriptive title summarizing the change
