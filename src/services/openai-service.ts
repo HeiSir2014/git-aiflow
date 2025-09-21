@@ -1128,11 +1128,13 @@ OUTPUT REQUIREMENTS:
    - Provide relevant testing instructions
 
   Use markdown formatting, be specific and factual.
-   **IMPORTANT:** The section headings (e.g., 'What Changed', 'Why', 'How to Test') MUST also be translated and output in ${languageName}, not just the content under them.
+   **IMPORTANT:** 
+   - The section headings (e.g., 'What Changed', 'Why', 'How to Test') MUST also be translated and output in ${languageName}, not just the content under them.
+   - Output MR DESCRIPTION in proper Markdown format, using natural line breaks and paragraphs. Do not escape any characters like newlines (\\n).​
    **EXAMPLE FOR CHINESE (Simplified):** 
-      Use '## 变更内容' instead of '## What Changed'
-      Use '## 变更原因' instead of '## Why'
-      Use '## 测试方法' instead of '## How to Test'
+   - Use '## 变更内容' instead of '## What Changed'
+   - Use '## 变更原因' instead of '## Why'
+   - Use '## 测试方法' instead of '## How to Test'
 
 4. MR TITLE (generate in ${languageName}):
    - Concise, descriptive title summarizing the change
@@ -1173,18 +1175,26 @@ NO other text, explanations, or formatting allowed in fallback mode.`;
    * @returns User prompt string
    */
   private buildUserPrompt(contextInfo?: string): string {
-    const taskDescription = contextInfo
-      ? `TASK: Analyze the git diff (${contextInfo}) below and use the 'output_with_json' function to return the structured commit information.`
-      : 'TASK: Analyze the git diff below and use the \'output_with_json\' function to return the structured commit information.';
+    const contextDescription = contextInfo
+      ? `This is a partial diff (${contextInfo}). Focus your analysis on the changes visible in this specific portion.`
+      : 'This is the complete git diff for analysis.';
 
-    return `${taskDescription}
+    return `${contextDescription}
 
-IMPORTANT: 
-- You MUST call the 'output_with_json' function with your analysis results
-- Provide the commit message, branch name, description, and title as function parameters
-- Do NOT return JSON in text format - use the function tool only
+TASK: Analyze the git diff provided in the next message and generate comprehensive commit information.
 
-Git diff data follows:`;
+ANALYSIS REQUIREMENTS:
+- Examine all file changes, additions, and deletions
+- Identify the primary purpose and scope of changes
+- Determine the appropriate conventional commit type
+- Consider the impact and context of modifications
+
+OUTPUT REQUIREMENTS:
+- Use the 'output_with_json' function to provide structured results
+- Ensure all generated content follows the language requirements specified in the system prompt
+- Generate professional, accurate, and concise information
+
+The raw git diff output will be provided in the next user message.`;
   }
 
   /**
