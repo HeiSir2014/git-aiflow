@@ -388,6 +388,7 @@ export class OpenAiService {
       'deepseekv3': 128000,
       'deepseekv31': 128000,
       'deepseek-coder-v2': 128000,
+      'deepseek/deepseek-chat-v3.1:free': 163800,
 
       // Qwen models
       'qwen-turbo': 8192,
