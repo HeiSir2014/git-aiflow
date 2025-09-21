@@ -37,20 +37,35 @@ interface BatchGenerationResult {
   title: string;
 }
 
+
 /**
- * Configuration for generating OpenAI API messages
+ * Tool call structure in OpenAI API response
  */
-interface MessageConfig {
-  systemPrompt: string;
-  userPrompt: string;
-  diffContent: string;
+interface ToolCall {
+  id: string;
+  type: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 /**
  * Standard OpenAI API response structure
  */
 interface OpenAiResponse {
-  choices: { message: { content: string } }[];
+  choices: {
+    message: {
+      content: string | null;
+      tool_calls?: ToolCall[];
+    },
+    finish_reason: string;
+  }[];
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 /**
@@ -197,13 +212,22 @@ export class OpenAiService {
     const systemPrompt = this.buildSystemPrompt(language);
     const userPrompt = this.buildUserPrompt();
 
-    const config: MessageConfig = {
-      systemPrompt,
-      userPrompt,
-      diffContent: diff
-    };
+    const messages = [
+      {
+        role: "system",
+        content: systemPrompt
+      },
+      {
+        role: "user",
+        content: userPrompt
+      },
+      {
+        role: "user",
+        content: diff
+      }
+    ];
 
-    const rawContent = await this.sendOpenAiRequest(config);
+    const rawContent = await this.sendOpenAiRequest(messages, true);
     const content = this.parseOpenAiResponse(rawContent, 'direct processing');
 
     return {
@@ -436,58 +460,58 @@ export class OpenAiService {
 
     // Pattern-based matching for variants and custom deployments
     const MODEL_PATTERNS: Array<{ pattern: RegExp, limit: number, description: string }> = [
-      // DeepSeek variants
-      { pattern: /^(x)?deepseek[-_]?v?3\.?1/i, limit: 32000, description: 'DeepSeek V3.1 variants' },
-      { pattern: /^(x)?deepseek[-_]?v?3/i, limit: 32000, description: 'DeepSeek V3 variants' },
-      { pattern: /^(x)?deepseek[-_]?v?2\.?5?/i, limit: 8000, description: 'DeepSeek V2/V2.5 variants' },
-      { pattern: /^(x)?deepseek[-_]?coder/i, limit: 32000, description: 'DeepSeek Coder variants' },
-      { pattern: /^(x)?deepseek/i, limit: 8000, description: 'Other DeepSeek variants' },
+      // DeepSeek variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?3\.?1/i, limit: 32000, description: 'DeepSeek V3.1 variants' },
+      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?3/i, limit: 32000, description: 'DeepSeek V3 variants' },
+      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?2\.?5?/i, limit: 8000, description: 'DeepSeek V2/V2.5 variants' },
+      { pattern: /(^|\/|:)(x)?deepseek[-_]?coder/i, limit: 32000, description: 'DeepSeek Coder variants' },
+      { pattern: /(^|\/|:)(x)?deepseek/i, limit: 8000, description: 'Other DeepSeek variants' },
 
-      // Qwen variants
-      { pattern: /^qwen[-_]?3[-_]?coder/i, limit: 128000, description: 'Qwen3 Coder variants' },
-      { pattern: /^qwen[-_]?3/i, limit: 128000, description: 'Qwen3 variants' },
-      { pattern: /^qwen[-_]?2\.?5/i, limit: 32768, description: 'Qwen2.5 variants' },
-      { pattern: /^qwen[-_]?2/i, limit: 32768, description: 'Qwen2 variants' },
-      { pattern: /^qwen[-_]?(coder|plus)/i, limit: 128000, description: 'Qwen Coder/Plus variants' },
-      { pattern: /^qwen[-_]?max/i, limit: 32768, description: 'Qwen Max variants' },
-      { pattern: /^qwen/i, limit: 8192, description: 'Other Qwen variants' },
+      // Qwen variants (support model names with provider prefix like "qwen/")
+      { pattern: /(^|\/|:)qwen[-_]?3[-_]?coder/i, limit: 128000, description: 'Qwen3 Coder variants' },
+      { pattern: /(^|\/|:)qwen[-_]?3/i, limit: 128000, description: 'Qwen3 variants' },
+      { pattern: /(^|\/|:)qwen[-_]?2\.?5/i, limit: 32768, description: 'Qwen2.5 variants' },
+      { pattern: /(^|\/|:)qwen[-_]?2/i, limit: 32768, description: 'Qwen2 variants' },
+      { pattern: /(^|\/|:)qwen[-_]?(coder|plus)/i, limit: 128000, description: 'Qwen Coder/Plus variants' },
+      { pattern: /(^|\/|:)qwen[-_]?max/i, limit: 32768, description: 'Qwen Max variants' },
+      { pattern: /(^|\/|:)qwen/i, limit: 8192, description: 'Other Qwen variants' },
 
-      // GPT variants and custom deployments
-      { pattern: /^gpt[-_]?4o[-_]?mini/i, limit: 128000, description: 'GPT-4o mini variants' },
-      { pattern: /^gpt[-_]?4o/i, limit: 128000, description: 'GPT-4o variants' },
-      { pattern: /^gpt[-_]?4[-_]?turbo/i, limit: 128000, description: 'GPT-4 turbo variants' },
-      { pattern: /^gpt[-_]?4[-_]?32k/i, limit: 32768, description: 'GPT-4 32K variants' },
-      { pattern: /^gpt[-_]?4/i, limit: 8192, description: 'GPT-4 variants' },
-      { pattern: /^gpt[-_]?3\.?5[-_]?turbo[-_]?16k/i, limit: 16384, description: 'GPT-3.5 turbo 16K variants' },
-      { pattern: /^gpt[-_]?3\.?5/i, limit: 4096, description: 'GPT-3.5 variants' },
+      // GPT variants and custom deployments (support model names with provider prefix)
+      { pattern: /(^|\/|:)gpt[-_]?4o[-_]?mini/i, limit: 128000, description: 'GPT-4o mini variants' },
+      { pattern: /(^|\/|:)gpt[-_]?4o/i, limit: 128000, description: 'GPT-4o variants' },
+      { pattern: /(^|\/|:)gpt[-_]?4[-_]?turbo/i, limit: 128000, description: 'GPT-4 turbo variants' },
+      { pattern: /(^|\/|:)gpt[-_]?4[-_]?32k/i, limit: 32768, description: 'GPT-4 32K variants' },
+      { pattern: /(^|\/|:)gpt[-_]?4/i, limit: 8192, description: 'GPT-4 variants' },
+      { pattern: /(^|\/|:)gpt[-_]?3\.?5[-_]?turbo[-_]?16k/i, limit: 16384, description: 'GPT-3.5 turbo 16K variants' },
+      { pattern: /(^|\/|:)gpt[-_]?3\.?5/i, limit: 4096, description: 'GPT-3.5 variants' },
 
-      // Claude variants
-      { pattern: /^claude[-_]?3[-_]?5/i, limit: 200000, description: 'Claude 3.5 variants' },
-      { pattern: /^claude[-_]?3/i, limit: 200000, description: 'Claude 3 variants' },
+      // Claude variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)claude[-_]?3[-_]?5/i, limit: 200000, description: 'Claude 3.5 variants' },
+      { pattern: /(^|\/|:)claude[-_]?3/i, limit: 200000, description: 'Claude 3 variants' },
 
-      // Gemini variants
-      { pattern: /^gemini[-_]?1\.?5/i, limit: 1048576, description: 'Gemini 1.5 variants' },
-      { pattern: /^gemini/i, limit: 32768, description: 'Other Gemini variants' },
+      // Gemini variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)gemini[-_]?1\.?5/i, limit: 1048576, description: 'Gemini 1.5 variants' },
+      { pattern: /(^|\/|:)gemini/i, limit: 32768, description: 'Other Gemini variants' },
 
-      // Kimi/Moonshot variants
-      { pattern: /^(kimi|moonshot)[-_]?.*128k/i, limit: 128000, description: 'Kimi/Moonshot 128K variants' },
-      { pattern: /^(kimi|moonshot)[-_]?.*32k/i, limit: 32768, description: 'Kimi/Moonshot 32K variants' },
-      { pattern: /^(kimi|moonshot)/i, limit: 128000, description: 'Other Kimi/Moonshot variants' },
+      // Kimi/Moonshot variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)(kimi|moonshot)[-_]?.*128k/i, limit: 128000, description: 'Kimi/Moonshot 128K variants' },
+      { pattern: /(^|\/|:)(kimi|moonshot)[-_]?.*32k/i, limit: 32768, description: 'Kimi/Moonshot 32K variants' },
+      { pattern: /(^|\/|:)(kimi|moonshot)/i, limit: 128000, description: 'Other Kimi/Moonshot variants' },
 
-      // LLaMA variants
-      { pattern: /^llama[-_]?3\.?1/i, limit: 128000, description: 'LLaMA 3.1 variants' },
-      { pattern: /^llama[-_]?3/i, limit: 8192, description: 'LLaMA 3 variants' },
-      { pattern: /^llama[-_]?2/i, limit: 4096, description: 'LLaMA 2 variants' },
-      { pattern: /^codellama/i, limit: 16384, description: 'CodeLlama variants' },
+      // LLaMA variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)llama[-_]?3\.?1/i, limit: 128000, description: 'LLaMA 3.1 variants' },
+      { pattern: /(^|\/|:)llama[-_]?3/i, limit: 8192, description: 'LLaMA 3 variants' },
+      { pattern: /(^|\/|:)llama[-_]?2/i, limit: 4096, description: 'LLaMA 2 variants' },
+      { pattern: /(^|\/|:)codellama/i, limit: 16384, description: 'CodeLlama variants' },
 
-      // Other model families
-      { pattern: /^mixtral/i, limit: 32768, description: 'Mixtral variants' },
-      { pattern: /^mistral/i, limit: 32768, description: 'Mistral variants' },
-      { pattern: /^phi[-_]?3/i, limit: 128000, description: 'Phi-3 variants' },
-      { pattern: /^yi[-_]?large/i, limit: 32768, description: 'Yi Large variants' },
-      { pattern: /^yi/i, limit: 4096, description: 'Other Yi variants' },
-      { pattern: /^glm[-_]?4/i, limit: 128000, description: 'GLM-4 variants' },
-      { pattern: /^chatglm/i, limit: 8192, description: 'ChatGLM variants' },
+      // Other model families (support model names with provider prefix)
+      { pattern: /(^|\/|:)mixtral/i, limit: 32768, description: 'Mixtral variants' },
+      { pattern: /(^|\/|:)mistral/i, limit: 32768, description: 'Mistral variants' },
+      { pattern: /(^|\/|:)phi[-_]?3/i, limit: 128000, description: 'Phi-3 variants' },
+      { pattern: /(^|\/|:)yi[-_]?large/i, limit: 32768, description: 'Yi Large variants' },
+      { pattern: /(^|\/|:)yi/i, limit: 4096, description: 'Other Yi variants' },
+      { pattern: /(^|\/|:)glm[-_]?4/i, limit: 128000, description: 'GLM-4 variants' },
+      { pattern: /(^|\/|:)chatglm/i, limit: 8192, description: 'ChatGLM variants' },
     ];
 
     // Try pattern matching
@@ -702,15 +726,24 @@ export class OpenAiService {
     const systemPrompt = this.buildSystemPrompt(language, filesInfo);
     const userPrompt = this.buildUserPrompt(filesInfo);
 
-    const config: MessageConfig = {
-      systemPrompt,
-      userPrompt,
-      diffContent: diffChunk.content
-    };
+    const messages = [
+      {
+        role: "system",
+        content: systemPrompt
+      },
+      {
+        role: "user",
+        content: userPrompt
+      },
+      {
+        role: "user",
+        content: diffChunk.content
+      }
+    ];
 
     logger.debug(`Generating commit info for diff chunk containing ${diffChunk.files.length} files`);
 
-    const rawContent = await this.sendOpenAiRequest(config);
+    const rawContent = await this.sendOpenAiRequest(messages, true);
     const content = this.parseOpenAiResponse(rawContent, 'batch processing');
 
     return {
@@ -751,58 +784,42 @@ Merging Rules:
 3. MR Description: Merge all partial descriptions into a comprehensive MR description
 4. MR Title: Merge all partial titles into a comprehensive MR title
 
-Generate content in ${this.getLanguageName(language)} (${language}) language (except branch name must be in English).
+Generate content in ${this.getLanguageName(language)} language (except branch name must be in English).
 
-Return format: {"commit":"<msg>", "branch":"<type/description>", "description":"<detailed-mr-description>", "title":"<mr-title>"}`;
+IMPORTANT: You MUST use the 'output_with_json' function tool to provide your merged results. Call the function with the four required parameters:
+- commit: Your merged commit message
+- branch: Your merged branch name (in English)
+- description: Your merged MR description
+- title: Your merged MR title
+
+Do NOT provide JSON in text format - use the function tool only.`;
 
     const batchSummaries = batchResults.map((result, index) =>
-      `Batch ${index + 1}:
-- Commit: ${result.commit}
-- Branch: ${result.branch}
-- MR Description: ${result.description}
-- MR Title: ${result.title}`
+      `# Batch ${index + 1}:
+- Commit: \`${result.commit}\`
+- Branch: \`${result.branch}\`
+- MR Description: \`\`\`markdown\n${result.description}\n\`\`\`
+- MR Title: \`${result.title}\``
     ).join('\n\n');
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: summaryPrompt
-        },
-        {
-          role: "user",
-          content: `Please merge the following ${batchResults.length} partial results into a global commit message, branch name, MR description and MR title:
+    const messages = [
+      {
+        role: "system",
+        content: summaryPrompt
+      },
+      {
+        role: "user",
+        content: `Please merge the following ${batchResults.length} partial results into a global commit message, branch name, MR description and MR title using the 'output_with_json' function:
 
 ${batchSummaries}`,
-        },
-      ],
-      temperature: 0.1,
-    });
-
-    const resp = await this.http.requestJson<{ choices: { message: { content: string } }[] }>(
-      `${this.apiUrl}/chat/completions`,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
       },
-      body
-    );
+    ];
 
-    const rawContent = resp.choices[0].message.content;
+    const rawContent = await this.sendOpenAiRequest(messages, true);
     logger.debug(`Merge AI response: ${rawContent}`);
 
-    // Clean up response content
-    let cleanContent = rawContent.trim();
-    if (cleanContent.startsWith('```json')) {
-      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanContent.startsWith('```')) {
-      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-
     try {
-      const content = JSON.parse(cleanContent);
+      const content = this.parseOpenAiResponse(rawContent, 'batch merge');
       return {
         commit: content.commit,
         branch: content.branch,
@@ -810,7 +827,7 @@ ${batchSummaries}`,
         title: content.title || ''
       };
     } catch (error) {
-      logger.error(`Failed to parse merge AI response:`, cleanContent);
+      logger.error(`Failed to parse merge AI response:`, rawContent);
       // Fallback strategy: use first result as base and manually combine
       logger.warn('Using fallback strategy to merge results');
 
@@ -890,32 +907,63 @@ ${batchSummaries}`,
   }
 
   /**
-   * Send request to OpenAI API with standard configuration
+   * Send request to OpenAI API with tool support
    * 
-   * @param config Message configuration for the API request
-   * @returns Promise resolving to the raw response content
+   * @param messages Array of messages for the API request
+   * @param useTools Whether to include output_with_json tool (default: true)
+   * @returns Promise resolving to the raw response content or parsed tool call result
    */
-  private async sendOpenAiRequest(config: MessageConfig): Promise<string> {
-    const body = JSON.stringify({
+  private async sendOpenAiRequest(messages: Array<{role: string, content: string}>, useTools: boolean = true): Promise<string> {
+    const requestBody: any = {
       model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: config.systemPrompt
-        },
-        {
-          role: "user",
-          content: config.userPrompt
-        },
-        {
-          role: "user",
-          content: config.diffContent
-        }
-      ],
+      messages: messages,
       temperature: 0.1
-    });
+    };
+
+    // Add tools and tool_choice if requested
+    if (useTools) {
+      requestBody.tools = [{
+        type: "function",
+        function: {
+          name: "output_with_json",
+          description: "Output the analyzed Git commit information in structured JSON format",
+          parameters: {
+            type: "object",
+            properties: {
+              commit: {
+                type: "string",
+                description: "The generated commit message"
+              },
+              branch: {
+                type: "string",
+                description: "The generated branch name"
+              },
+              description: {
+                type: "string",
+                description: "The generated merge request description"
+              },
+              title: {
+                type: "string",
+                description: "The generated merge request title"
+              }
+            },
+            required: ["commit", "branch", "description", "title"],
+            additionalProperties: false
+          }
+        }
+      }];
+      requestBody.tool_choice = {
+        type: "function",
+        function: {
+          name: "output_with_json"
+        }
+      };
+    }
+
+    const body = JSON.stringify(requestBody);
 
     logger.debug(`OpenAI request body size: ${body.length} characters`);
+    logger.debug(`OpenAI request body: ${body}`);
 
     const response = await this.http.requestJson<OpenAiResponse>(
       `${this.apiUrl}/chat/completions`,
@@ -927,21 +975,68 @@ ${batchSummaries}`,
       body
     );
 
-    const rawContent = response.choices[0].message.content;
-    logger.debug(`OpenAI response: ${rawContent}`);
+    if(!response.choices || response.choices.length === 0) {
+      throw new Error("No valid response received from OpenAI API, response.choices is empty");
+    }
 
-    return rawContent;
+    const message = response.choices[0].message;
+    if(!message) {
+      throw new Error("No valid response received from OpenAI API, message is empty");
+    }
+
+    const finishReason = response.choices[0].finish_reason;
+    logger.debug(`OpenAI response finish reason: ${finishReason && finishReason.toUpperCase() || '<none>'}`);
+    logger.info(`OpenAI response usage: ${JSON.stringify(response.usage, null, 0)}`);
+    logger.debug(`OpenAI response message: ${JSON.stringify(message, null, 0)}`);
+    // Check if response contains tool calls (preferred method)
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      if(message.content && message.content.trim() !== ''){
+        logger.warn(`OpenAI tool call response: content is not empty, content: ${message.content}`);
+      }
+      const toolCall = message.tool_calls[0];
+      if (toolCall.function.name === "output_with_json") {
+        logger.debug(`OpenAI tool call response: ${toolCall.function.arguments}`);
+        return toolCall.function.arguments;
+      }
+      else{
+        logger.warn(`OpenAI tool call response: function: ${toolCall.function.name} is not supported, arguments: ${toolCall.function.arguments}`);
+      }
+    }
+
+    // Fallback to content for models that don't support tool_choice
+    const rawContent = message.content;
+    if (rawContent) {
+      logger.debug(`OpenAI content response: ${rawContent}`);
+      return rawContent;
+    }
+
+    throw new Error("No valid response received from OpenAI API");
   }
 
   /**
    * Clean and parse OpenAI response content
    * 
-   * @param rawContent Raw response content from OpenAI
+   * @param rawContent Raw response content from OpenAI (could be tool call arguments or regular content)
    * @param errorContext Context string for error logging
    * @returns Parsed JSON object
    */
   private parseOpenAiResponse(rawContent: string, errorContext: string): any {
-    // Clean up the response - remove markdown code blocks if present
+    // First, try to parse as-is (for tool call arguments which are already JSON)
+    try {
+      const parsed = JSON.parse(rawContent);
+      // Validate that it has the expected structure
+      if (parsed && typeof parsed === 'object' &&
+        'commit' in parsed && 'branch' in parsed &&
+        'description' in parsed && 'title' in parsed) {
+        logger.debug(`Successfully parsed tool call response in ${errorContext}`);
+        return parsed;
+      }
+    } catch (error) {
+      // If direct parsing fails, continue to traditional cleaning approach
+      logger.debug(`Direct JSON parsing failed in ${errorContext}, trying traditional approach`);
+    }
+
+    // Traditional approach: clean up the response - remove markdown code blocks if present
     let cleanContent = rawContent.trim();
 
     // Remove ```json and ``` markers if present
@@ -952,9 +1047,11 @@ ${batchSummaries}`,
     }
 
     try {
-      return JSON.parse(cleanContent);
+      const parsed = JSON.parse(cleanContent);
+      logger.debug(`Successfully parsed traditional JSON response in ${errorContext}`);
+      return parsed;
     } catch (error) {
-      logger.error(`Failed to parse ${errorContext} AI response:`, cleanContent);
+      logger.error(`Failed to parse ${errorContext} AI response:`, rawContent);
       throw new Error(`Invalid JSON response from AI in ${errorContext}: ${error}`);
     }
   }
@@ -974,9 +1071,10 @@ ${batchSummaries}`,
 
     return `You are an expert Git commit analyzer. Your task is to analyze the provided git diff and generate accurate, professional commit information.
 
-LANGUAGE REQUIREMENT: Generate all content in ${languageName} (${language}). For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
+LANGUAGE REQUIREMENT: Generate all content in \`${languageName}\`. For English, use standard technical terminology. For Chinese, use professional technical Chinese. For other languages, use appropriate professional terminology.
 
-${contextSection}ANALYSIS INSTRUCTIONS:
+${contextSection}
+ANALYSIS INSTRUCTIONS:
 1. Carefully examine the git diff to identify:
    - Exact files that were modified, added, or deleted
    - Specific code changes (functions, variables, imports, etc.)
@@ -991,7 +1089,7 @@ ${contextSection}ANALYSIS INSTRUCTIONS:
 
 OUTPUT REQUIREMENTS:
 
-1. COMMIT MESSAGE (generate in ${languageName} (${language})):
+1. COMMIT MESSAGE (generate in ${languageName}):
    - MUST follow conventional commits: type(scope): description
    - Types: feat, fix, docs, style, refactor, test, chore
    - Scope: optional, use file/module name if clear
@@ -1005,56 +1103,52 @@ OUTPUT REQUIREMENTS:
    - Examples: feat/user-auth, fix/login-bug, docs/api-guide
    - NO deviations from this format
 
-3. MR DESCRIPTION (generate in ${languageName} (${language})):
-   Structure with these sections(generate in ${languageName} (${language}) with markdown formatting):
+3. MR DESCRIPTION (generate in ${languageName}):
+   Structure with these sections:
    ## What Changed
    - List specific changes made (based on diff analysis)
-   
    ## Why
    - Explain the reason/purpose for these changes
-   
    ## How to Test
    - Provide relevant testing instructions
-   
-   Use markdown formatting, be specific and factual.
 
-4. MR TITLE (generate in ${languageName} (${language})):
+  Use markdown formatting, be specific and factual.
+   **IMPORTANT:** The section headings (e.g., 'What Changed', 'Why', 'How to Test') MUST also be translated and output in ${languageName}, not just the content under them.
+   **EXAMPLE FOR CHINESE (Simplified):** 
+      Use \`## 变更内容\` instead of \`## What Changed\`
+      Use \`## 原因\` instead of \`## Why\`
+      Use \`## 测试方法\` instead of \`## How to Test\`
+
+4. MR TITLE (generate in ${languageName}):
    - Concise, descriptive title summarizing the change
    - Use appropriate prefixes for maintenance changes
 
 CRITICAL OUTPUT FORMAT - READ CAREFULLY:
-You MUST return ONLY a valid JSON object with EXACTLY these 4 fields. NO other text, explanations, or formatting allowed.
+You MUST use the 'output_with_json' function tool to provide your response. This tool is specifically designed for structured output.
 
-REQUIRED JSON STRUCTURE (copy this format exactly):
+FUNCTION TOOL USAGE:
+Call the 'output_with_json' function with these exact parameters:
+- commit: Your generated commit message (string)
+- branch: Your generated branch name (string)
+- description: Your generated MR description (string)  
+- title: Your generated MR title (string)
+
+IMPORTANT NOTES:
+- Always use the function tool \`output_with_json\` when system tool_call is available
+- Do NOT provide JSON in text format - use the function tool only
+- Do NOT include any other text or explanations
+- The function tool \`output_with_json\` ensures proper structured output
+
+FALLBACK FOR MODELS WITHOUT TOOL SUPPORT:
+If function tools are not supported, return ONLY a valid JSON object with EXACTLY these 4 fields:
 {
-  "commit": "<COMMIT MESSAGE> placeholder here",
-  "branch": "<BRANCH NAME> placeholder here", 
-  "description": "<MR DESCRIPTION> placeholder here",
-  "title": "<MR TITLE> placeholder here"
+  "commit": "<COMMIT MESSAGE>",
+  "branch": "<BRANCH NAME>", 
+  "description": "<MR DESCRIPTION>",
+  "title": "<MR TITLE>"
 }
 
-FORBIDDEN FORMATS (will cause errors):
- - {"commit_message":"...", "branch_name":"...", "mr_description":"...", "mr_title":"..."}
- - Any text before or after the JSON
- - Markdown code blocks like \`\`\`json
- - Comments or explanations
- - Extra fields beyond the 4 required ones
-
-VALIDATION: Your response will be parsed as JSON. If it fails, the system will error.
-
-JSON SCHEMA REQUIREMENT:
-Your response must match this exact schema:
-{
-  "type": "object",
-  "properties": {
-    "commit": {"type": "string"},
-    "branch": {"type": "string"},
-    "description": {"type": "string"},
-    "title": {"type": "string"}
-  },
-  "required": ["commit", "branch", "description", "title"],
-  "additionalProperties": false
-}`;
+NO other text, explanations, or formatting allowed in fallback mode.`;
   }
 
   /**
@@ -1065,15 +1159,15 @@ Your response must match this exact schema:
    */
   private buildUserPrompt(contextInfo?: string): string {
     const taskDescription = contextInfo
-      ? `TASK: Analyze the git diff (${contextInfo}) below and return ONLY the JSON object with commit, branch, description, and title fields.`
-      : 'TASK: Analyze the git diff below and return ONLY the JSON object with commit, branch, description, and title fields.';
+      ? `TASK: Analyze the git diff (${contextInfo}) below and use the 'output_with_json' function to return the structured commit information.`
+      : 'TASK: Analyze the git diff below and use the \'output_with_json\' function to return the structured commit information.';
 
     return `${taskDescription}
 
-REMEMBER: 
-- Return ONLY valid JSON, no other text
-- Use exact field names: "commit", "branch", "description", "title"
-- No markdown wrappers or explanations
+IMPORTANT: 
+- You MUST call the 'output_with_json' function with your analysis results
+- Provide the commit message, branch name, description, and title as function parameters
+- Do NOT return JSON in text format - use the function tool only
 
 Git diff data follows:`;
   }
