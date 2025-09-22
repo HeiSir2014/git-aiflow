@@ -72,6 +72,12 @@ export interface AiflowConfig {
     key?: string;
     baseUrl?: string;
     model?: string;
+    reasoning?: boolean | {
+      enabled?: boolean;
+      effort?: 'high' | 'medium' | 'low';
+      max_tokens?: number;
+      exclude?: boolean;
+    };
   };
 
   // Git Access Tokens for multiple platforms
@@ -183,6 +189,7 @@ export class ConfigLoader {
       'OPENAI_KEY': 'openai.key',
       'OPENAI_BASE_URL': 'openai.baseUrl',
       'OPENAI_MODEL': 'openai.model',
+      'OPENAI_REASONING': 'openai.reasoning',
       'CONAN_REMOTE_BASE_URL': 'conan.remoteBaseUrl',
       'CONAN_REMOTE_REPO': 'conan.remoteRepo',
       'WECOM_WEBHOOK': 'wecom.webhook',
@@ -429,6 +436,7 @@ export class ConfigLoader {
         key: 'your-openai-api-key',
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-3.5-turbo',
+        reasoning: false,
       },
       git_access_tokens: {
         'github.com': 'your-github-access-token',
@@ -477,6 +485,9 @@ openai:
   
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: ${exampleConfig.openai?.model}
+  
+  # 启用推理模式 (可选) - 对于o1等推理模型，可以启用更深度的思考模式
+  reasoning: ${exampleConfig.openai?.reasoning}
 
 # Git 访问令牌配置 - 支持多个Git托管平台
 git_access_tokens:
@@ -635,6 +646,10 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         config.openai = { ...config.openai, model: value };
         i++;
         break;
+      case 'openai-reasoning':
+        config.openai = { ...config.openai, reasoning: value !== 'false' };
+        i++;
+        break;
       case 'git-access-token':
         // Parse format: hostname=token
         if (value && value.includes('=')) {
@@ -711,10 +726,11 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
  */
 function getShortArgMapping(shortKey: string): string {
   const shortArgMap: Record<string, string> = {
-    // OpenAI shortcuts (OpenAI Key, OpenAI Base Url, OpenAI Model)
+    // OpenAI shortcuts (OpenAI Key, OpenAI Base Url, OpenAI Model, OpenAI Reasoning)
     'ok': 'openai-key',
     'obu': 'openai-base-url',
     'om': 'openai-model',
+    'or': 'openai-reasoning',
 
     // Git access token shortcuts (Git Access Token)
     'gat': 'git-access-token',
@@ -758,6 +774,7 @@ OpenAI 配置 - AI功能支持:
   -ok, --openai-key <key>               OpenAI API密钥 (必需，用于AI生成提交信息)
   -obu, --openai-base-url <url>         OpenAI API地址 (必需，API请求端点)
   -om, --openai-model <model>           OpenAI模型 (必需，如gpt-3.5-turbo、gpt-4)
+  -or, --openai-reasoning <bool>        启用推理模式 (可选，适用于o1等推理模型)
 
 Git 访问令牌配置 - 多平台支持:
   -gat, --git-access-token <host=token> Git访问令牌 (格式: 主机名=令牌)
@@ -982,6 +999,10 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       const currentModel = configData.openai.model || 'gpt-3.5-turbo';
       const openaiModel = await question(`  OpenAI 模型 [${currentModel}]: `);
       configData.openai.model = openaiModel.trim() || currentModel;
+
+      const currentReasoning = configData.openai.reasoning !== undefined ? configData.openai.reasoning : false;
+      const openaiReasoning = await question(`  启用推理模式 (推荐用于o1等推理模型) [${currentReasoning}]: `);
+      configData.openai.reasoning = openaiReasoning.trim() === '' ? currentReasoning : openaiReasoning.trim() !== 'false';
     }
 
     // Git access tokens configuration
@@ -1223,6 +1244,9 @@ openai:
   
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: ${openaiConfig.model || 'gpt-3.5-turbo'}
+  
+  # 启用推理模式 (可选) - 对于o1等推理模型，可以启用更深度的思考模式
+  reasoning: ${openaiConfig.reasoning !== undefined ? openaiConfig.reasoning : false}
 
 `;
   }
