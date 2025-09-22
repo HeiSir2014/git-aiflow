@@ -1,5 +1,19 @@
-import { HttpClient } from '../http/http-client.js';
+import OpenAI from 'openai';
 import { logger } from '../logger.js';
+
+/**
+ * Reasoning configuration options
+ */
+export interface ReasoningConfig {
+  /** Enable reasoning with default parameters */
+  enabled?: boolean;
+  /** Reasoning effort level (OpenAI-style) */
+  effort?: 'high' | 'medium' | 'low';
+  /** Maximum reasoning tokens (Anthropic-style) */
+  max_tokens?: number;
+  /** Exclude reasoning tokens from response */
+  exclude?: boolean;
+}
 
 /**
  * Result of AI-generated commit information
@@ -38,61 +52,42 @@ interface BatchGenerationResult {
 }
 
 
-/**
- * Tool call structure in OpenAI API response
- */
-interface ToolCall {
-  id: string;
-  type: string;
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
 
-/**
- * Standard OpenAI API response structure
- */
-interface OpenAiResponse {
-  choices: {
-    message: {
-      content: string | null;
-      tool_calls?: ToolCall[];
-    },
-    finish_reason: string;
-  }[];
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
+// Using OpenAI SDK types directly, no need for custom interfaces
 
 /**
  * OpenAI API service for generating commit message and branch name
  */
 export class OpenAiService {
-  private readonly apiKey: string;
-  private readonly apiUrl: string;
+  private readonly client: OpenAI;
   private readonly model: string;
-  private readonly http: HttpClient;
+  private readonly reasoning: boolean | ReasoningConfig;
 
   /** Cache for storing detected context limits by model name */
   private static readonly contextLimitCache = new Map<string, number>();
 
-  constructor(apiKey: string, apiUrl: string, model: string, http?: HttpClient) {
-    this.apiKey = apiKey;
-    this.apiUrl = apiUrl;
+  constructor(apiKey: string, apiUrl: string, model: string, reasoning: boolean | ReasoningConfig = false) {
     this.model = model;
-    this.http = http || new HttpClient();
-    // trim /v1 or /
-    if (apiUrl.endsWith('/')) {
-      this.apiUrl = apiUrl.slice(0, -1);
-    }
-    if (apiUrl.endsWith('/chat/completions')) { // trim /v1
-      this.apiUrl = apiUrl.slice(0, -10);
-    }
-    logger.info(`Initialized OpenAI service`, { apiUrl: this.apiUrl, model: this.model });
+    this.reasoning = reasoning;
+    
+    // Initialize OpenAI client
+    this.client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: apiUrl.endsWith('/chat/completions') 
+        ? apiUrl.replace('/chat/completions', '') 
+        : apiUrl.endsWith('/') 
+          ? apiUrl.slice(0, -1) 
+          : apiUrl
+      ,
+      maxRetries: 3,
+      timeout: 300000,
+    });
+    
+    logger.info(`Initialized OpenAI service`, { 
+      baseURL: this.client.baseURL, 
+      model: this.model, 
+      reasoning: this.reasoning 
+    });
   }
 
   /**
@@ -297,7 +292,7 @@ export class OpenAiService {
       const testTokens = Math.floor(contextLimit * 0.8); // Use 80% of limit for safety
       const testContent = 'x'.repeat(testTokens * 4); // Approximate 4 chars per token
 
-      const body = JSON.stringify({
+      const response = await this.client.chat.completions.create({
         model: this.model,
         messages: [
           {
@@ -313,18 +308,8 @@ export class OpenAiService {
         temperature: 0
       });
 
-      const resp = await this.http.requestJson<{ choices: { message: { content: string } }[] }>(
-        `${this.apiUrl}/chat/completions`,
-        "POST",
-        {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body
-      );
-
       // If we get a response, the context limit is supported
-      return resp.choices && resp.choices.length > 0;
+      return response.choices && response.choices.length > 0;
     } catch (error: any) {
       // Check if error is context-related
       const errorMessage = error.message?.toLowerCase() || '';
@@ -915,15 +900,24 @@ ${batchSummaries}`,
    * @returns Promise resolving to the raw response content or parsed tool call result
    */
   private async sendOpenAiRequest(messages: Array<{ role: string, content: string }>, useTools: boolean = true): Promise<string> {
-    const requestBody: any = {
+    const requestParams: OpenAI.Chat.ChatCompletionCreateParams = {
       model: this.model,
-      messages: messages,
+      messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
       temperature: 0.1
     };
 
+    // Add reasoning support for compatible models (if supported by the API)
+    if (this.reasoning) {
+      const reasoningConfig = this.buildReasoningConfig();
+      if (reasoningConfig) {
+        (requestParams as any).reasoning = reasoningConfig;
+        logger.debug(`Enabling reasoning mode for model: ${this.model}`, { config: reasoningConfig });
+      }
+    }
+
     // Add tools and tool_choice if requested
     if (useTools) {
-      requestBody.tools = [{
+      requestParams.tools = [{
         type: "function",
         function: {
           name: "output_with_json",
@@ -953,7 +947,7 @@ ${batchSummaries}`,
           }
         }
       }];
-      requestBody.tool_choice = {
+      requestParams.tool_choice = {
         type: "function",
         function: {
           name: "output_with_json"
@@ -961,21 +955,9 @@ ${batchSummaries}`,
       };
     }
 
-    const body = JSON.stringify(requestBody);
+    logger.debug(`OpenAI request params:`, requestParams);
 
-    logger.debug(`OpenAI request body size: ${body.length} characters`);
-    logger.debug(`OpenAI request body: ${body}`);
-
-    const response = await this.http.requestJson<OpenAiResponse>(
-      `${this.apiUrl}/chat/completions`,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-        "User-Agent": `Git-AIFlow/${process.env.AIFLOW_VERSION} ${process.platform}-${process.arch} Node.js/${process.version}`
-      },
-      body
-    );
+    const response = await this.client.chat.completions.create(requestParams);
 
     if (!response.choices || response.choices.length === 0) {
       throw new Error("No valid response received from OpenAI API, response.choices is empty");
@@ -988,20 +970,23 @@ ${batchSummaries}`,
 
     const finishReason = response.choices[0].finish_reason;
     logger.debug(`OpenAI response finish reason: ${finishReason && finishReason.toUpperCase() || '<none>'}`);
-    logger.info(`OpenAI response usage: ${JSON.stringify(response.usage, null, 0)}`);
-    logger.debug(`OpenAI response message: ${JSON.stringify(message, null, 0)}`);
+    logger.info(`OpenAI response usage:`, response.usage);
+    logger.debug(`OpenAI response message:`, message);
+    
     // Check if response contains tool calls (preferred method)
     if (message.tool_calls && message.tool_calls.length > 0) {
       if (message.content && message.content.trim() !== '') {
         logger.warn(`OpenAI tool call response: content is not empty, content: ${message.content}`);
       }
       const toolCall = message.tool_calls[0];
-      if (toolCall.function.name === "output_with_json") {
-        logger.debug(`OpenAI tool call response: ${toolCall.function.arguments}`);
-        return toolCall.function.arguments;
-      }
-      else {
-        logger.warn(`OpenAI tool call response: function: ${toolCall.function.name} is not supported, arguments: ${toolCall.function.arguments}`);
+      if (toolCall.type === 'function' && toolCall.function) {
+        if (toolCall.function.name === "output_with_json") {
+          logger.debug(`OpenAI tool call response: ${toolCall.function.arguments}`);
+          return toolCall.function.arguments;
+        }
+        else {
+          logger.warn(`OpenAI tool call response: function: ${toolCall.function.name} is not supported, arguments: ${toolCall.function.arguments}`);
+        }
       }
     }
 
@@ -1030,6 +1015,7 @@ ${batchSummaries}`,
       if (parsed && typeof parsed === 'object' &&
         'commit' in parsed && 'branch' in parsed &&
         'description' in parsed && 'title' in parsed) {
+        logger.debug(`commit = ${parsed.commit}\n\nbranch = ${parsed.branch}\n\ndescription = ${parsed.description}\n\ntitle = ${parsed.title}`);
         if (parsed.description) {
           parsed.description = parsed.description.replace(/\\n/g, '\n').trim();
         }
@@ -1047,6 +1033,8 @@ ${batchSummaries}`,
     // Traditional approach: clean up the response - remove markdown code blocks if present
     let cleanContent = rawContent.trim();
 
+    // Remove all <think> and </think> markers (handles multiple patterns and nested content)
+    cleanContent = cleanContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     // Remove ```json and ``` markers if present
     if (cleanContent.startsWith('```json')) {
       cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
@@ -1196,6 +1184,51 @@ OUTPUT REQUIREMENTS:
 - Generate professional, accurate, and concise information
 
 The raw git diff output will be provided in the next user message.`;
+  }
+
+  /**
+   * Build reasoning configuration based on the reasoning parameter
+   * @returns Reasoning configuration object or null
+   */
+  private buildReasoningConfig(): any {
+    if (!this.reasoning) {
+      return null;
+    }
+
+    // If reasoning is just a boolean (legacy mode)
+    if (typeof this.reasoning === 'boolean') {
+      return { enabled: true };
+    }
+
+    // Build configuration object
+    const config: any = {};
+
+    // Handle enabled flag
+    if (this.reasoning.enabled !== undefined) {
+      config.enabled = this.reasoning.enabled;
+    }
+
+    // Handle effort level (OpenAI-style)
+    if (this.reasoning.effort) {
+      config.effort = this.reasoning.effort;
+    }
+
+    // Handle max_tokens (Anthropic-style)
+    if (this.reasoning.max_tokens) {
+      config.max_tokens = this.reasoning.max_tokens;
+    }
+
+    // Handle exclude flag
+    if (this.reasoning.exclude !== undefined) {
+      config.exclude = this.reasoning.exclude;
+    }
+
+    // If no specific configuration is provided, enable with defaults
+    if (Object.keys(config).length === 0) {
+      config.enabled = true;
+    }
+
+    return config;
   }
 
   /**

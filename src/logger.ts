@@ -82,6 +82,8 @@ const defaultConfig: LoggerConfig = {
   highWaterMark: 16 * 1024 // 16KB high water mark
 };
 
+const SPLAT_SYMBOL = Symbol.for('splat');
+
 /**
  * Create Winston logger instance
  */
@@ -94,7 +96,8 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
       format: 'YYYY-MM-DD HH:mm:ss.SSS'
     }),
     winston.format.errors({ stack: true }),
-    winston.format.printf(({ level, message, timestamp, stack, ...meta }) => {
+    winston.format.printf((info) => {
+      const { level, message, timestamp, stack, ...meta } = info;
       let logMessage = `${timestamp} [${level.toUpperCase()}]: ${message}`;
 
       // Add stack trace for errors
@@ -102,9 +105,27 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
         logMessage += `\n${stack}`;
       }
 
+      // Combine metadata from both meta and winston's splat symbol
+      let allMeta = { ...meta };
+      
+      // Access winston's SPLAT symbol to get additional metadata
+      const splatData = info[SPLAT_SYMBOL];
+      
+      // If splat exists and contains metadata (additional parameters to logger), merge it
+      if (splatData && Array.isArray(splatData) && splatData.length > 0) {
+        for (const item of splatData) {
+          if (typeof item === 'object' && item !== null) {
+            allMeta = { ...allMeta, ...item };
+          }
+          else if (typeof item === 'string') {
+            logMessage += `\n${item}`;
+          }
+        }
+      }
+
       // Add metadata if present
-      if (Object.keys(meta).length > 0) {
-        logMessage += `\n${JSON.stringify(meta, null, 0)}`;
+      if (allMeta && Object.keys(allMeta).length > 0) {
+        logMessage += `\n${JSON.stringify(allMeta, null, 0)}`;
       }
 
       return logMessage;
@@ -149,12 +170,31 @@ function createWinstonLogger(config: LoggerConfig = defaultConfig): winston.Logg
           winston.format.timestamp({
             format: 'HH:mm:ss.SSS'
           }),
-          winston.format.printf(({ level, message, timestamp, ...meta }) => {
+          winston.format.printf((info) => {
+            const { level, message, timestamp, ...meta } = info;
             let consoleMessage = `${timestamp} ${level}: ${message}`;
 
+            // Combine metadata from both meta and winston's splat symbol
+            let allMeta = { ...meta };
+            
+            // Access winston's SPLAT symbol to get additional metadata
+            const splatData = info[SPLAT_SYMBOL];
+            
+            // If splat exists and contains metadata (additional parameters to logger), merge it
+            if (splatData && Array.isArray(splatData) && splatData.length > 0) {
+              for (const item of splatData) {
+                if (typeof item === 'object' && item !== null) {
+                  allMeta = { ...allMeta, ...item };
+                }
+                else if (typeof item === 'string') {
+                  consoleMessage += `\n${item}`;
+                }
+              }
+            }
+
             // Add metadata if present (but keep it concise for console)
-            if (Object.keys(meta).length > 0) {
-              const metaStr = JSON.stringify(meta);
+            if (allMeta && Object.keys(allMeta).length > 0) {
+              const metaStr = JSON.stringify(allMeta, null, 0);
               if (metaStr.length < 100) {
                 consoleMessage += ` ${metaStr}`;
               }
