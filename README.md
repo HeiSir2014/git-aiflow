@@ -56,8 +56,8 @@
 
 ## 📋 环境要求
 
-- **Node.js**: >= 16.0.0
-- **npm**: >= 7.0.0
+- **Node.js**: >= 22.0.0
+- **npm**: >= 11.0.0
 - **Git**: 已配置且能访问远程仓库
 - **Git 托管平台**: GitHub、GitLab、Gitee 等平台的 Personal Access Token
 - **OpenAI**: 有效的 API Key（💡 推荐：查看 [免费模型配置指南](docs/free-models.md) 获取免费API）

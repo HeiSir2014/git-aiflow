@@ -358,6 +358,11 @@ jobs:
           
           # Use sed to replace version in template
           sed "s/v{{VERSION}}/v$VERSION/g" docs/template.html > docs/index.html
+
+          cp README.md docs/
+          cp README-EN.md docs/
+          cp config.example.yaml docs/
+          cp LICENSE docs/
           
           echo "✅ Generated docs/index.html from template with version $VERSION"
 

@@ -57,7 +57,7 @@ Specialized automation tool for Conan package version updates.
 - **npm**: >= 7.0.0
 - **Git**: Configured with access to remote repositories
 - **Git Hosting Platforms**: Personal Access Tokens for GitHub, GitLab, Gitee, etc.
-- **OpenAI**: Valid API Key (💡 Recommended: Check [Free Models Guide](docs/free-models.md) for free API options)
+- **OpenAI**: Valid API Key (💡 Recommended: Check [Free Models Guide](docs/free-models-en.md) for free API options)
 
 ## 🔧 Installation & Setup
 

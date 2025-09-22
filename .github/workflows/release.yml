@@ -183,6 +183,8 @@ jobs:
           
           ### 📦 Installation
           
+          - **Using NPM Install**: [https://www.npmjs.com/package/git-aiflow](https://www.npmjs.com/package/git-aiflow)
+
           \`\`\`bash
           npm install -g git-aiflow@${{ needs.validate-release.outputs.version }}
           \`\`\`
