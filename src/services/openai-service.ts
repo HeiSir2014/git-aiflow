@@ -26,6 +26,46 @@ export interface CommitGenerationResult {
 }
 
 /**
+ * Throughput statistics for API performance analysis
+ */
+export interface ThroughputStats {
+  /** Request start timestamp in milliseconds */
+  startTime: number;
+  /** Request end timestamp in milliseconds */
+  endTime: number;
+  /** Total response time in milliseconds */
+  responseTimeMs: number;
+  /** Total response time in seconds */
+  responseTimeSeconds: number;
+  /** Number of prompt tokens */
+  promptTokens: number;
+  /** Number of completion tokens */
+  completionTokens: number;
+  /** Total number of tokens */
+  totalTokens: number;
+  /** Overall throughput in tokens per second */
+  tokensPerSecond: number;
+  /** Input throughput in prompt tokens per second */
+  promptTokensPerSecond: number;
+  /** Output throughput in completion tokens per second */
+  completionTokensPerSecond: number;
+  /** Time per token in milliseconds */
+  millisecondsPerToken: number;
+  /** Performance level assessment */
+  performanceLevel: string;
+  /** Time to first token (approximation) */
+  ttftMs: number;
+  /** Average time between tokens in milliseconds */
+  avgTimeBetweenTokensMs: number;
+  /** Output to input token ratio */
+  outputInputRatio: number;
+  /** Model name used for the request */
+  model: string;
+  /** Timestamp when stats were recorded */
+  recordedAt: number;
+}
+
+/**
  * Represents a chunk of diff content with associated metadata.
  */
 interface DiffChunk {
@@ -65,6 +105,12 @@ export class OpenAiService {
 
   /** Cache for storing detected context limits by model name */
   private static readonly contextLimitCache = new Map<string, number>();
+  
+  /** Cache for the latest throughput statistics */
+  private lastThroughputStats: ThroughputStats | null = null;
+  
+  /** History of throughput statistics (limited to last 10 requests) */
+  private throughputHistory: ThroughputStats[] = [];
 
   constructor(apiKey: string, apiUrl: string, model: string, reasoning: boolean | ReasoningConfig = false) {
     this.model = model;
@@ -957,7 +1003,10 @@ ${batchSummaries}`,
 
     logger.debug(`OpenAI request params:`, requestParams);
 
+    // Record start time for throughput calculation
+    const requestStartTime = Date.now();
     const response = await this.client.chat.completions.create(requestParams);
+    const requestEndTime = Date.now();
 
     if (!response.choices || response.choices.length === 0) {
       throw new Error("No valid response received from OpenAI API, response.choices is empty");
@@ -972,6 +1021,9 @@ ${batchSummaries}`,
     logger.debug(`OpenAI response finish reason: ${finishReason && finishReason.toUpperCase() || '<none>'}`);
     logger.info(`OpenAI response usage:`, response.usage);
     logger.debug(`OpenAI response message:`, message);
+
+    // Calculate and log throughput statistics
+    this.logThroughputStats(response.usage, requestStartTime, requestEndTime);
     
     // Check if response contains tool calls (preferred method)
     if (message.tool_calls && message.tool_calls.length > 0) {
@@ -1256,5 +1308,206 @@ The raw git diff output will be provided in the next user message.`;
     };
 
     return languageMap[language] || 'English';
+  }
+
+  /**
+   * Calculate and log throughput statistics, also cache the data
+   * @param usage OpenAI API usage statistics
+   * @param startTime Request start time in milliseconds
+   * @param endTime Request end time in milliseconds
+   */
+  private logThroughputStats(
+    usage: any, 
+    startTime: number, 
+    endTime: number
+  ): void {
+    if (!usage) {
+      logger.warn('No usage statistics available for throughput calculation');
+      return;
+    }
+
+    const totalTime = endTime - startTime; // Total time in milliseconds
+    const totalTimeSeconds = totalTime / 1000; // Total time in seconds
+
+    // Extract token counts
+    const promptTokens = usage.prompt_tokens || 0;
+    const completionTokens = usage.completion_tokens || 0;
+    const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+
+    // Calculate throughput rates
+    const tokensPerSecond = totalTimeSeconds > 0 ? (totalTokens / totalTimeSeconds) : 0;
+    const promptTokensPerSecond = totalTimeSeconds > 0 ? (promptTokens / totalTimeSeconds) : 0;
+    const completionTokensPerSecond = totalTimeSeconds > 0 ? (completionTokens / totalTimeSeconds) : 0;
+
+    // Calculate time per token
+    const millisecondsPerToken = totalTokens > 0 ? (totalTime / totalTokens) : 0;
+
+    // Performance assessment
+    let performanceLevel = '';
+    if (tokensPerSecond >= 50) {
+      performanceLevel = '🏆 Excellent (≥50 tokens/sec)';
+    } else if (tokensPerSecond >= 20) {
+      performanceLevel = '✅ Good (20-49 tokens/sec)';
+    } else if (tokensPerSecond >= 10) {
+      performanceLevel = '⚠️  Average (10-19 tokens/sec)';
+    } else if (tokensPerSecond >= 5) {
+      performanceLevel = '🐌 Slow (5-9 tokens/sec)';
+    } else {
+      performanceLevel = '🚨 Very Slow (<5 tokens/sec)';
+    }
+
+    // Calculate additional metrics
+    const ttftMs = totalTime; // Time to First Token approximation
+    const avgTimeBetweenTokensMs = completionTokens > 1 ? (totalTime / completionTokens) : 0;
+    const outputInputRatio = promptTokens > 0 ? (completionTokens / promptTokens) : 0;
+
+    // Create throughput stats object
+    const stats: ThroughputStats = {
+      startTime,
+      endTime,
+      responseTimeMs: totalTime,
+      responseTimeSeconds: totalTimeSeconds,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      tokensPerSecond,
+      promptTokensPerSecond,
+      completionTokensPerSecond,
+      millisecondsPerToken,
+      performanceLevel,
+      ttftMs,
+      avgTimeBetweenTokensMs,
+      outputInputRatio,
+      model: this.model,
+      recordedAt: Date.now()
+    };
+
+    // Cache the stats
+    this.lastThroughputStats = stats;
+    
+    // Add to history (keep only last 10 entries)
+    this.throughputHistory.push(stats);
+    if (this.throughputHistory.length > 10) {
+      this.throughputHistory.shift();
+    }
+
+    // Log comprehensive throughput statistics
+    logger.info('📊 API Throughput Statistics:');
+    logger.info(`   ⏱️  Response Time: ${totalTime}ms (${totalTimeSeconds.toFixed(2)}s)`);
+    logger.info(`   📝 Token Usage: ${promptTokens} prompt + ${completionTokens} completion = ${totalTokens} total`);
+    logger.info(`   🚀 Overall Throughput: ${tokensPerSecond.toFixed(2)} tokens/sec`);
+    logger.info(`   📥 Input Throughput: ${promptTokensPerSecond.toFixed(2)} prompt tokens/sec`);
+    logger.info(`   📤 Output Throughput: ${completionTokensPerSecond.toFixed(2)} completion tokens/sec`);
+    logger.info(`   ⚡ Time per Token: ${millisecondsPerToken.toFixed(2)}ms/token`);
+    logger.info(`   📈 Performance Level: ${performanceLevel}`);
+
+    // Additional metrics for analysis
+    if (completionTokens > 0) {
+      logger.info(`   🎯 TTFT (approx): ${ttftMs}ms`);
+      
+      if (completionTokens > 1) {
+        logger.info(`   🔄 TBT (avg): ${avgTimeBetweenTokensMs.toFixed(2)}ms/token`);
+      }
+    }
+
+    // Log efficiency ratios
+    if (promptTokens > 0 && completionTokens > 0) {
+      logger.info(`   📊 Output/Input Ratio: ${outputInputRatio.toFixed(2)} (${completionTokens}/${promptTokens})`);
+    }
+  }
+
+  /**
+   * Get the latest throughput statistics from the most recent API call
+   * @returns The latest throughput stats or null if no calls have been made
+   */
+  public getLastThroughputStats(): ThroughputStats | null {
+    return this.lastThroughputStats;
+  }
+
+  /**
+   * Get throughput statistics history (up to last 10 requests)
+   * @returns Array of throughput statistics, ordered from oldest to newest
+   */
+  public getThroughputHistory(): ThroughputStats[] {
+    return [...this.throughputHistory]; // Return a copy to prevent external modification
+  }
+
+  /**
+   * Get aggregated throughput statistics from history
+   * @returns Aggregated statistics or null if no history exists
+   */
+  public getAggregatedThroughputStats(): {
+    totalRequests: number;
+    averageResponseTime: number;
+    averageThroughput: number;
+    totalTokens: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    bestPerformance: ThroughputStats | null;
+    worstPerformance: ThroughputStats | null;
+    performanceTrend: 'improving' | 'declining' | 'stable' | 'insufficient_data';
+  } | null {
+    if (this.throughputHistory.length === 0) {
+      return null;
+    }
+
+    const history = this.throughputHistory;
+    const totalRequests = history.length;
+    
+    // Calculate averages
+    const averageResponseTime = history.reduce((sum, stats) => sum + stats.responseTimeMs, 0) / totalRequests;
+    const averageThroughput = history.reduce((sum, stats) => sum + stats.tokensPerSecond, 0) / totalRequests;
+    const totalTokens = history.reduce((sum, stats) => sum + stats.totalTokens, 0);
+    const totalPromptTokens = history.reduce((sum, stats) => sum + stats.promptTokens, 0);
+    const totalCompletionTokens = history.reduce((sum, stats) => sum + stats.completionTokens, 0);
+
+    // Find best and worst performance
+    const bestPerformance = history.reduce((best, current) => 
+      current.tokensPerSecond > best.tokensPerSecond ? current : best
+    );
+    const worstPerformance = history.reduce((worst, current) => 
+      current.tokensPerSecond < worst.tokensPerSecond ? current : worst
+    );
+
+    // Determine performance trend (compare first half with second half)
+    let performanceTrend: 'improving' | 'declining' | 'stable' | 'insufficient_data' = 'insufficient_data';
+    if (totalRequests >= 4) {
+      const midpoint = Math.floor(totalRequests / 2);
+      const firstHalfAvg = history.slice(0, midpoint)
+        .reduce((sum, stats) => sum + stats.tokensPerSecond, 0) / midpoint;
+      const secondHalfAvg = history.slice(midpoint)
+        .reduce((sum, stats) => sum + stats.tokensPerSecond, 0) / (totalRequests - midpoint);
+      
+      const improvementThreshold = 0.05; // 5% threshold
+      const relativeChange = (secondHalfAvg - firstHalfAvg) / firstHalfAvg;
+      
+      if (relativeChange > improvementThreshold) {
+        performanceTrend = 'improving';
+      } else if (relativeChange < -improvementThreshold) {
+        performanceTrend = 'declining';
+      } else {
+        performanceTrend = 'stable';
+      }
+    }
+
+    return {
+      totalRequests,
+      averageResponseTime: Math.round(averageResponseTime),
+      averageThroughput: Math.round(averageThroughput * 100) / 100,
+      totalTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      bestPerformance,
+      worstPerformance,
+      performanceTrend
+    };
+  }
+
+  /**
+   * Clear throughput statistics history and cache
+   */
+  public clearThroughputStats(): void {
+    this.lastThroughputStats = null;
+    this.throughputHistory = [];
   }
 }
