@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.31] - 2025-09-25
+
+### Added
+- Release version 1.0.31
+
+### Changed
+- Updated package version to 1.0.31
+
+### Fixed
+- Version synchronization between package.json and release tag
+
+
 ## [1.0.30] - 2025-09-22
 
 ### Added
