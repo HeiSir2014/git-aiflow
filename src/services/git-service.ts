@@ -1046,48 +1046,104 @@ export class GitService {
       const currentBranch = this.getCurrentBranch();
       if (!currentBranch || currentBranch === 'HEAD') return null;
 
-      const logGraph = this.shell.runProcess("git", "log", "--graph", "--oneline", "--decorate", "--all", "--simplify-by-decoration");
-      const lines = logGraph.split('\n');
-
-      // 本地和远程分支列表
-      const localBranches = this.shell
-        .runProcess("git","for-each-ref", "--format=%(refname:short)", "refs/heads/")
+      const allRefs = this.shell
+        .runProcess(
+          "git",
+          "for-each-ref",
+          "--format=%(refname:short)",
+          "refs/heads/",
+          "refs/remotes/"
+        )
         .trim()
         .split('\n')
-        .map(b => b.trim());
-      const remotes = this.shell.runProcess("git", "remote").trim().split('\n').map(r => r.trim());
+        .map(r => r.trim())
+        .filter(Boolean);
+
+      const localBranches: string[] = [];
+      const remoteBranches: string[] = [];
+
+      for (const ref of allRefs) {
+        if (ref.startsWith("origin/") || ref.startsWith("remotes/")) {
+          remoteBranches.push(ref);
+        } else {
+          localBranches.push(ref);
+        }
+      }
+
+      const remotes = this.shell
+        .runProcess("git", "remote")
+        .trim()
+        .split('\n')
+        .map(r => r.trim())
+        .filter(Boolean);
+
+      const logGraph = this.shell.runProcess(
+        "git",
+        "log",
+        "--graph",
+        "--oneline",
+        "--decorate",
+        "--all",
+        "--simplify-by-decoration"
+      );
+      const lines = logGraph.split('\n');
+
+      const normalizeRef = (r: string | undefined): string | null => {
+        if (!r) return null;
+        let ref = r.trim();
+        if (!ref) return null;
+        if (ref.startsWith('tag:')) return null;
+        const arrowMatch = ref.match(/->\s*(.+)$/);
+        if (arrowMatch) return arrowMatch[1].trim();
+        return ref;
+      };
 
       for (const line of lines) {
         const match = line.match(/\((.*?)\)/);
         if (!match) continue;
 
-        const refs = match[1].split(',').map(r => r.trim());
-        const candidate = refs.find(r => r !== currentBranch && !r.startsWith('HEAD'));
-        if (!candidate) continue;
+        const rawRefs = match[1].split(',').map(r => r.trim()).filter(Boolean);
+        const normalizedRefs = rawRefs.map(r => normalizeRef(r)).filter(Boolean) as string[];
 
-        let cleanBranch = candidate;
+        const mentionsCurrent = normalizedRefs.some(r =>
+          r === currentBranch || r.endsWith(`/${currentBranch}`)
+        );
+        if (!mentionsCurrent) continue;
 
-        // Check if it's a remote branch and extract the local branch name
+        const starIndex = line.indexOf('*');
+
+        const candidateRaw = rawRefs.find(r => {
+          const nr = normalizeRef(r);
+          if (!nr) return false;
+          if (nr === currentBranch) return false;
+          if (nr === 'HEAD') return false;
+          if (r.startsWith('tag:')) return false;
+          if (r === 'origin/HEAD') return false;
+          return true;
+        });
+
+        if (!candidateRaw) continue;
+
+        let candidate = normalizeRef(candidateRaw)!;
+
         for (const remote of remotes) {
           const prefix = `${remote}/`;
           if (candidate.startsWith(prefix)) {
-            cleanBranch = candidate.slice(prefix.length);
+            candidate = candidate.slice(prefix.length);
             break;
           }
         }
 
-        // Skip if the clean branch is the same as current branch
-        if (cleanBranch === currentBranch) {
+        if (candidate === currentBranch) continue;
+
+        const hasRemoteCounterpart = remoteBranches.some(rb => rb.endsWith(`/${candidate}`));
+        if (!hasRemoteCounterpart) {
+          logger.debug(`Skipped candidate '${candidate}' because no remote counterpart found.`);
           continue;
         }
 
-        // Only consider this branch if the clean branch name exists locally
-        if (!localBranches.includes(cleanBranch)) {
-          continue;
-        }
-
-        logger.debug(`Detected base branch: ${cleanBranch}`);
-        return cleanBranch;
+        logger.debug(`Detected base branch: ${candidate} (star column ${starIndex})`);
+        return candidate;
       }
 
       return null;
