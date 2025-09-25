@@ -1076,6 +1076,11 @@ export class GitService {
           }
         }
 
+        // Skip if the clean branch is the same as current branch
+        if (cleanBranch === currentBranch) {
+          continue;
+        }
+
         // Only consider this branch if the clean branch name exists locally
         if (!localBranches.includes(cleanBranch)) {
           continue;
