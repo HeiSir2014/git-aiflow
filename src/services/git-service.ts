@@ -1098,6 +1098,8 @@ export class GitService {
         return ref;
       };
 
+      let foundCurrentBranch = false;
+      
       for (const line of lines) {
         const match = line.match(/\((.*?)\)/);
         if (!match) continue;
@@ -1105,12 +1107,18 @@ export class GitService {
         const rawRefs = match[1].split(',').map(r => r.trim()).filter(Boolean);
         const normalizedRefs = rawRefs.map(r => normalizeRef(r)).filter(Boolean) as string[];
 
+        // Check if this line mentions the current branch
         const mentionsCurrent = normalizedRefs.some(r =>
           r === currentBranch || r.endsWith(`/${currentBranch}`)
         );
-        if (!mentionsCurrent) continue;
 
-        const starIndex = line.indexOf('*');
+        if (mentionsCurrent) {
+          foundCurrentBranch = true;
+          continue; // Skip the line that contains current branch
+        }
+
+        // Only look for candidates after we've found the current branch
+        if (!foundCurrentBranch) continue;
 
         const candidateRaw = rawRefs.find(r => {
           const nr = normalizeRef(r);
@@ -1142,7 +1150,7 @@ export class GitService {
           continue;
         }
 
-        logger.debug(`Detected base branch: ${candidate} (star column ${starIndex})`);
+        logger.debug(`Detected base branch: ${candidate}`);
         return candidate;
       }
 
