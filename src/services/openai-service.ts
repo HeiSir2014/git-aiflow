@@ -127,6 +127,10 @@ export class OpenAiService {
       ,
       maxRetries: 3,
       timeout: 300000,
+      defaultHeaders: {
+        'HTTP-Referer': 'https://github.com/HeiSir2014/git-aiflow',
+        'X-Title': 'Git-AIFlow',
+      },
     });
     
     logger.info(`Initialized OpenAI service`, { 
@@ -337,8 +341,7 @@ export class OpenAiService {
       // Create a test prompt that approaches but doesn't exceed the limit
       const testTokens = Math.floor(contextLimit * 0.8); // Use 80% of limit for safety
       const testContent = 'x'.repeat(testTokens * 4); // Approximate 4 chars per token
-
-      const response = await this.client.chat.completions.create({
+      const testBody = {
         model: this.model,
         messages: [
           {
@@ -351,8 +354,14 @@ export class OpenAiService {
           }
         ],
         max_tokens: 10, // Minimal response
-        temperature: 0
-      });
+        temperature: 0,
+        extra_body: {
+          usage: {
+            include: true,
+          },
+        }
+      } as any;
+      const response = await this.client.chat.completions.create(testBody);
 
       // If we get a response, the context limit is supported
       return response.choices && response.choices.length > 0;
@@ -950,6 +959,12 @@ ${batchSummaries}`,
       model: this.model,
       messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
       temperature: 0.1
+    };
+
+    (requestParams as any).extra_body = {
+      usage: {
+        include: true,
+      },
     };
 
     // Add reasoning support for compatible models (if supported by the API)
