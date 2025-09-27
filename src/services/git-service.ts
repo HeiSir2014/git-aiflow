@@ -284,43 +284,233 @@ export class GitService {
     return StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
   }
 
-  getDiff(): string {
-    return this.shell.runProcess("git", "diff", "--cached", "--text");
+  /**
+   * Get git diff of staged changes
+   * @param options Diff options
+   * @returns Git diff output
+   */
+  getDiff(options: { 
+    includeBinary?: boolean; 
+    nameOnly?: boolean;
+  } = {}): string {
+    const { includeBinary = false, nameOnly = false } = options;
+    
+    if (nameOnly) {
+      return this.shell.runProcess("git", "diff", "--cached", "--name-only");
+    }
+    
+    if (includeBinary) {
+      // Force treat all files as text (may produce unreadable output for binary files)
+      return this.shell.runProcess("git", "diff", "--cached", "--text");
+    }
+    
+    // Default behavior: Exclude binary files to avoid unreadable output
+    return this.getDiffExcludingBinary();
+  }
+
+  /**
+   * Get diff excluding binary files
+   * @returns Git diff output with binary files excluded
+   */
+  private getDiffExcludingBinary(): string {
+    try {
+      // Get list of staged files
+      const stagedFiles = this.getChangedFiles();
+      
+      if (stagedFiles.length === 0) {
+        return '';
+      }
+      
+      // Filter out binary files
+      const textFiles: string[] = [];
+      
+      for (const file of stagedFiles) {
+        if (!this.isBinaryFile(file, { cached: true })) {
+          textFiles.push(file);
+        }
+      }
+      
+      if (textFiles.length === 0) {
+        return 'All staged files are binary files.';
+      }
+      
+      // Get diff for text files only
+      return this.shell.runProcess("git", "diff", "--cached", "--", ...textFiles);
+    } catch (error) {
+      logger.warn('Error filtering binary files, falling back to default diff:', error);
+      return this.shell.runProcess("git", "diff", "--cached");
+    }
+  }
+
+  /**
+   * Check if a file is binary
+   * @param filePath File path to check
+   * @param options Options for binary detection
+   * @returns True if file is binary, false otherwise
+   */
+  private isBinaryFile(filePath: string, options: { 
+    cached?: boolean; 
+    branchComparison?: string;
+  } = {}): boolean {
+    try {
+      const { cached = true, branchComparison } = options;
+      
+      // Use git to check if file is binary
+      const args: string[] = ["git", "diff"];
+      
+      if (branchComparison) {
+        // For branch comparison
+        args.push(branchComparison);
+      } else if (cached) {
+        // For staged changes
+        args.push("--cached");
+      }
+      // For unstaged changes, no additional flag needed
+      
+      args.push("--numstat", "--", filePath);
+      
+      const result = this.shell.runProcess(args[0], ...args.slice(1));
+      
+      // Binary files show "-	-	filename" in numstat output
+      const lines = result.trim().split('\n');
+      for (const line of lines) {
+        if (line.includes(filePath) && line.startsWith('-\t-\t')) {
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      // If we can't determine, assume it's not binary
+      logger.debug(`Could not determine if ${filePath} is binary:`, error);
+      return false;
+    }
   }
 
   /**
    * Get git diff of specific files (unstaged changes)
    * @param filePaths Array of file paths to check diff for
+   * @param options Diff options
    * @returns Git diff output
    */
-  getDiffForFiles(filePaths: string[]): string {
+  getDiffForFiles(filePaths: string[], options: { includeBinary?: boolean } = {}): string {
     if (filePaths.length === 0) {
       return '';
     }
 
-    const files = filePaths.join(' ');
-    return this.shell.runProcess("git", "diff", "--text", files);
+    const { includeBinary = false } = options;
+    
+    if (includeBinary) {
+      // Include all files, treat binary as text (may produce unreadable output)
+      const args: string[] = ["git", "diff", "--text"];
+      args.push(...filePaths);
+      return this.shell.runProcess(args[0], ...args.slice(1));
+    }
+    
+    // Default behavior: Filter out binary files
+    return this.getDiffForFilesExcludingBinary(filePaths);
+  }
+
+  /**
+   * Get diff for specific files excluding binary files
+   * @param filePaths Array of file paths to check diff for
+   * @returns Git diff output with binary files excluded
+   */
+  private getDiffForFilesExcludingBinary(filePaths: string[]): string {
+    try {
+      // Filter out binary files
+      const textFiles: string[] = [];
+      
+      for (const file of filePaths) {
+        if (!this.isBinaryFile(file, { cached: false })) {
+          textFiles.push(file);
+        }
+      }
+      
+      if (textFiles.length === 0) {
+        return 'All specified files are binary files.';
+      }
+      
+      // Get diff for text files only
+      const args: string[] = ["git", "diff"];
+      args.push(...textFiles);
+      return this.shell.runProcess(args[0], ...args.slice(1));
+    } catch (error) {
+      logger.warn('Error filtering binary files, falling back to default diff:', error);
+      const args: string[] = ["git", "diff"];
+      args.push(...filePaths);
+      return this.shell.runProcess(args[0], ...args.slice(1));
+    }
   }
 
   /**
    * Get diff between two branches
    * @param baseBranch Base branch name
    * @param targetBranch Target branch name
+   * @param options Diff options
    * @returns Git diff output between branches
    */
-  getDiffBetweenBranches(baseBranch: string, targetBranch: string): string {
+  getDiffBetweenBranches(baseBranch: string, targetBranch: string, options: { includeBinary?: boolean } = {}): string {
     try {
       if (!baseBranch || !targetBranch) {
         logger.warn('Both baseBranch and targetBranch must be provided');
         return '';
       }
 
-      const diffOutput = this.shell.runProcess("git", "diff", "--text", `${baseBranch}...${targetBranch}`);
-      logger.debug(`Got diff between ${baseBranch} and ${targetBranch}`);
+      const { includeBinary = false } = options;
+      
+      if (includeBinary) {
+        // Include all files, treat binary as text (may produce unreadable output)
+        const diffOutput = this.shell.runProcess("git", "diff", "--text", `${baseBranch}...${targetBranch}`);
+        logger.debug(`Got diff between ${baseBranch} and ${targetBranch} (including binary)`);
+        return diffOutput;
+      }
+      
+      // Default behavior: Filter out binary files
+      const diffOutput = this.getDiffBetweenBranchesExcludingBinary(baseBranch, targetBranch);
+      logger.debug(`Got diff between ${baseBranch} and ${targetBranch} (excluding binary)`);
       return diffOutput;
     } catch (error) {
       logger.error(`Error getting diff between branches ${baseBranch} and ${targetBranch}:`, error);
       return '';
+    }
+  }
+
+  /**
+   * Get diff between branches excluding binary files
+   * @param baseBranch Base branch name
+   * @param targetBranch Target branch name
+   * @returns Git diff output with binary files excluded
+   */
+  private getDiffBetweenBranchesExcludingBinary(baseBranch: string, targetBranch: string): string {
+    try {
+      // Get list of changed files between branches
+      const changedFiles = this.getChangedFilesBetweenBranches(baseBranch, targetBranch);
+      
+      if (changedFiles.length === 0) {
+        return '';
+      }
+      
+      // Filter out binary files
+      const textFiles: string[] = [];
+      
+      for (const file of changedFiles) {
+        if (!this.isBinaryFile(file, { branchComparison: `${baseBranch}...${targetBranch}` })) {
+          textFiles.push(file);
+        }
+      }
+      
+      if (textFiles.length === 0) {
+        return 'All changed files between branches are binary files.';
+      }
+      
+      // Get diff for text files only
+      const args: string[] = ["git", "diff", `${baseBranch}...${targetBranch}`, "--"];
+      args.push(...textFiles);
+      return this.shell.runProcess(args[0], ...args.slice(1));
+    } catch (error) {
+      logger.warn('Error filtering binary files, falling back to default diff:', error);
+      return this.shell.runProcess("git", "diff", `${baseBranch}...${targetBranch}`);
     }
   }
 
@@ -789,34 +979,44 @@ export class GitService {
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.getCurrentBranch();
-      if (this.hasRemoteBranch(`${this.getRemoteName()}/${currentBranch}`)) {
+      if (this.hasRemoteBranch(currentBranch)) {
         return currentBranch;
       }
 
       logger.debug(`Current branch ${currentBranch} does not exist in remote`);
 
       const baseBranch = this.getBaseBranch();
-      if (baseBranch) {
+      if (baseBranch && this.hasRemoteBranch(baseBranch)) {
         return baseBranch;
       }
 
-      // Common default branch names to try
-      const defaultBranches = ['main', 'master', 'develop'];
+      // Get all remote branches to find the best default
+      const remoteBranches = this.getRemoteBranches();
+      if (remoteBranches.length === 0) {
+        logger.warn('No remote branches found, using "main" as fallback');
+        return 'main';
+      }
 
-      // If current branch is one of the default branches, use it
-      if (defaultBranches.includes(currentBranch)) {
+      // Common default branch names to try (in order of preference)
+      const defaultBranches = ['main', 'master', 'develop', 'dev'];
+
+      // If current branch is one of the default branches and exists remotely, use it
+      if (defaultBranches.includes(currentBranch) && remoteBranches.includes(currentBranch)) {
         return currentBranch;
       }
 
       // Otherwise, try to find the default branch by checking which exists
       for (const branch of defaultBranches) {
-        if (this.hasRemoteBranch(`${this.getRemoteName()}/${branch}`)) {
+        if (remoteBranches.includes(branch)) {
+          logger.debug(`Using ${branch} as target branch`);
           return branch;
         }
       }
 
-      // Fallback to main if nothing else works
-      return 'main';
+      // If no common default branches exist, use the first remote branch
+      const firstBranch = remoteBranches[0];
+      logger.debug(`No common default branches found, using first remote branch: ${firstBranch}`);
+      return firstBranch;
     } catch (error) {
       logger.warn(`Could not determine target branch, using 'main': ${error}`);
       return 'main';
@@ -831,16 +1031,59 @@ export class GitService {
   }
 
   /**
+   * Get all remote branches from the remote repository
+   * @param remoteName Remote name (optional, uses default remote if not provided)
+   * @returns Array of remote branch names (without remote prefix)
+   */
+  getRemoteBranches(remoteName?: string): string[] {
+    try {
+      const remote = remoteName || this.getRemoteName();
+      const output = this.shell.runProcess("git", "ls-remote", "--heads", remote);
+      
+      const branches: string[] = [];
+      const lines = output.trim().split('\n');
+      
+      for (const line of lines) {
+        if (line.trim()) {
+          // Format: "commit_hash    refs/heads/branch_name"
+          const match = line.match(/refs\/heads\/(.+)$/);
+          if (match) {
+            branches.push(match[1]);
+          }
+        }
+      }
+      
+      logger.debug(`Found ${branches.length} remote branches: ${branches.join(', ')}`);
+      return branches;
+    } catch (error) {
+      logger.warn(`Failed to get remote branches: ${error}`);
+      return [];
+    }
+  }
+
+  /**
    * Check if a remote branch exists
-   * @param branchName Branch name to check (e.g., 'origin/main')
+   * @param branchName Branch name to check (without remote prefix, e.g., 'main')
+   * @param remoteName Remote name (optional, uses default remote if not provided)
    * @returns True if branch exists, false otherwise
    */
-  hasRemoteBranch(branchName: string): boolean {
+  hasRemoteBranch(branchName: string, remoteName?: string): boolean {
     try {
-      this.shell.runProcess("git", "rev-parse", "--verify", branchName).trim();
-      return true;
+      const remote = remoteName || this.getRemoteName();
+      const output = this.shell.runProcess("git", "ls-remote", "--heads", remote, branchName);
+      
+      // If the branch exists, ls-remote will return a line with the branch
+      const hasMatch = output.trim().includes(`refs/heads/${branchName}`);
+      
+      if (hasMatch) {
+        logger.debug(`Remote branch ${remote}/${branchName} exists`);
+      } else {
+        logger.debug(`Remote branch ${remote}/${branchName} does not exist`);
+      }
+      
+      return hasMatch;
     } catch (error) {
-      logger.debug(`Remote branch ${branchName} does not exist`);
+      logger.debug(`Error checking remote branch ${branchName}: ${error}`);
       return false;
     }
   }
@@ -1046,30 +1289,6 @@ export class GitService {
       const currentBranch = this.getCurrentBranch();
       if (!currentBranch || currentBranch === 'HEAD') return null;
 
-      const allRefs = this.shell
-        .runProcess(
-          "git",
-          "for-each-ref",
-          "--format=%(refname:short)",
-          "refs/heads/",
-          "refs/remotes/"
-        )
-        .trim()
-        .split('\n')
-        .map(r => r.trim())
-        .filter(Boolean);
-
-      const localBranches: string[] = [];
-      const remoteBranches: string[] = [];
-
-      for (const ref of allRefs) {
-        if (ref.startsWith("origin/") || ref.startsWith("remotes/")) {
-          remoteBranches.push(ref);
-        } else {
-          localBranches.push(ref);
-        }
-      }
-
       const remotes = this.shell
         .runProcess("git", "remote")
         .trim()
@@ -1099,6 +1318,7 @@ export class GitService {
       };
 
       let foundCurrentBranch = false;
+      let currentBranchColumn = 0;
       
       for (const line of lines) {
         const match = line.match(/\((.*?)\)/);
@@ -1114,6 +1334,7 @@ export class GitService {
 
         if (mentionsCurrent) {
           foundCurrentBranch = true;
+          currentBranchColumn = line.indexOf('*');
           continue; // Skip the line that contains current branch
         }
 
@@ -1133,6 +1354,13 @@ export class GitService {
         if (!candidateRaw) continue;
 
         let candidate = normalizeRef(candidateRaw)!;
+        let candidateColumn = line.indexOf('*');
+        if (candidateColumn === -1) {
+          continue;
+        }
+        if (candidateColumn > currentBranchColumn) {
+          continue;
+        }
 
         for (const remote of remotes) {
           const prefix = `${remote}/`;
@@ -1144,9 +1372,9 @@ export class GitService {
 
         if (candidate === currentBranch) continue;
 
-        const hasRemoteCounterpart = remoteBranches.some(rb => rb.endsWith(`/${candidate}`));
-        if (!hasRemoteCounterpart) {
-          logger.debug(`Skipped candidate '${candidate}' because no remote counterpart found.`);
+        // Check if candidate exists in remote using accurate remote branch detection
+        if (!this.hasRemoteBranch(candidate)) {
+          logger.debug(`Skipped candidate '${candidate}' because it does not exist in remote.`);
           continue;
         }
 
