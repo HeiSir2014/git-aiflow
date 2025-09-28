@@ -83,4 +83,56 @@ export class Shell {
   runProcess(process: string, ...args: string[]): string {
     return this.run(process, ...args);
   }
+
+  /**
+   * Execute a shell command and return detailed result including exit code
+   * @param command The command to execute
+   * @param args Command arguments
+   * @returns Object containing success status, output, and exit code
+   */
+  runWithExitCode(command: string, ...args: string[]): { success: boolean; output: string; exitCode: number } {
+    logger.debug(`Executing shell command: \n----\n${command}${args.length > 0 ? ` ${args.join(" ")}` : ""}\n----`);
+    const startTime = Date.now();
+    
+    try {
+      // Always use shell: false to avoid command injection
+      const result: SpawnSyncReturns<string> = spawnSync(
+        command,
+        args,
+        {
+          encoding: "utf-8", 
+          shell: false, 
+          cwd: process.cwd(),
+          maxBuffer: 1024 * 1024 * 10,
+        }
+      );
+
+      const duration = Date.now() - startTime;
+      const exitCode = result.status || 0;
+      const success = exitCode === 0 && !result.error;
+      
+      if (result.error) {
+        logger.debug(`Command failed with error (${duration}ms): ${result.error.message}`);
+        return { success: false, output: result.error.message, exitCode: -1 };
+      }
+
+      const output = result.stdout.replace(/[\r\n]+/g, "\n").trimEnd() || result.stderr.replace(/[\r\n]+/g, "\n").trimEnd();
+      
+      logger.debug(`Command output: \n----\n${output}\n----`);
+      logger.debug(`Command completed (${duration}ms) ${JSON.stringify({
+        command: command + (args.length > 0 ? ` ${args.join(" ")}` : ""),
+        output,
+        outputLength: output.length,
+        exitCode,
+        success
+      })}`);
+
+      return { success, output, exitCode };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error(`Shell execution failed after ${duration}ms`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { success: false, output: errorMessage, exitCode: -1 };
+    }
+  }
 }

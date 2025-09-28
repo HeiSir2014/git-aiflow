@@ -142,22 +142,36 @@ export class UpdateChecker {
   }
 
   /**
+   * Get the correct npm command for the current platform
+   */
+  private getNpmCommand(): string {
+    const platform = process.platform;
+    if (platform === 'win32') {
+      // On Windows, try npm.cmd first, then npm.exe
+      return 'npm.cmd';
+    }
+    return 'npm';
+  }
+
+  /**
    * Perform automatic update installation
    */
   private async performAutoUpdate(latestVersion: string): Promise<boolean> {
     try {
       logger.info(`🔄 Updating from ${this.packageJson.version} to ${latestVersion}...`);
 
-      // Run npm install -g git-aiflow@latest
-      const result = this.shell.run('npm install -g git-aiflow@latest');
+      const npmCommand = this.getNpmCommand();
+      
+      // Use runWithExitCode for better error handling
+      const result = this.shell.runWithExitCode(npmCommand, 'install', '-g', 'git-aiflow@latest');
 
-      // Check if the command was successful by looking for success indicators in output
-      if (result.includes('added') || result.includes('changed') || result.includes('updated')) {
+      // Check if the command was successful based on exit code
+      if (result.success && result.exitCode === 0) {
         logger.info(`✅ Successfully updated to git-aiflow@${latestVersion}`);
         logger.info('🔄 Please restart the command to use the new version.');
         return true;
       } else {
-        logger.error(`❌ Failed to update git-aiflow:`, result);
+        logger.error(`❌ Failed to update git-aiflow (exit code: ${result.exitCode}):`, result.output);
         return false;
       }
     } catch (error) {

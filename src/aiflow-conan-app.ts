@@ -78,6 +78,10 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const targetBranch = this.git.getTargetBranch();
       logger.info(`🌿 Current branch: ${currentBranch}`);
       logger.info(`🎯 Target branch: ${targetBranch}`);
+      if (!currentBranch) {
+        logger.error("❌ Could not detect current branch or in detached HEAD. Please stage some changes.");
+        return;
+      }
 
       // Step 4: Generate commit message and branch name using AI
       logger.info(`🤖 Generating commit message and branch name...`);
