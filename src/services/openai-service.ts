@@ -430,6 +430,9 @@ export class OpenAiService {
       'deepseek-coder-v2': 128000,
       'deepseek/deepseek-chat-v3.1:free': 163800,
 
+      // Grok models
+      'x-ai/grok-4-fast:free': 2000000,
+
       // Qwen models
       'qwen-turbo': 8192,
       'qwen-plus': 32768,
@@ -553,6 +556,10 @@ export class OpenAiService {
       { pattern: /(^|\/|:)yi/i, limit: 4096, description: 'Other Yi variants' },
       { pattern: /(^|\/|:)glm[-_]?4/i, limit: 128000, description: 'GLM-4 variants' },
       { pattern: /(^|\/|:)chatglm/i, limit: 8192, description: 'ChatGLM variants' },
+
+      // Grok variants (support model names with provider prefix)
+      { pattern: /(^|\/|:)x[-_]?ai[-_]?grok[-_]?4[-_]?fast/i, limit: 2000000, description: 'Grok 4 Fast variants' },
+      { pattern: /(^|\/|:)x[-_]?ai/i, limit: 2000000, description: 'Other Grok variants' },
     ];
 
     // Try pattern matching
