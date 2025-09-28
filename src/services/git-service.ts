@@ -44,8 +44,9 @@ export class GitService {
    * 5. Finally attempt stash pop (if conflicts occur, preserve and prompt for manual resolution)
    * 
    * @param branchName The name of the branch to checkout
+   * @returns True if checkout was successful, false otherwise
    */
-  checkout(branchName: string): void {
+  checkout(branchName: string): boolean {
     logger.info(`Checking out branch: ${branchName}`);
 
     const remoteName = this.getRemoteName();
@@ -53,19 +54,24 @@ export class GitService {
     const stashResult = this.handleWorkingDirectoryChanges(branchName);
 
     if (!this.fetchAndValidateRemoteBranch(branchName, remoteName, stashResult.pushedStash)) {
-      return;
+      return false;
     }
 
     const localExists = this.checkLocalBranchExists(branchName);
+    let checkoutSuccess = false;
 
     if (localExists) {
-      this.checkoutExistingBranch(branchName, remoteName, stashResult.pushedStash);
+      checkoutSuccess = this.checkoutExistingBranch(branchName, remoteName, stashResult.pushedStash);
     } else {
-      this.createTrackingBranch(branchName, remoteName, stashResult.pushedStash);
+      checkoutSuccess = this.createTrackingBranch(branchName, remoteName, stashResult.pushedStash);
     }
 
-    this.restoreWorkingDirectoryChanges(stashResult.pushedStash);
-    this.logCheckoutCompletion(currentHead, branchName);
+    if (checkoutSuccess) {
+      this.restoreWorkingDirectoryChanges(stashResult.pushedStash);
+      this.logCheckoutCompletion(currentHead, branchName);
+    }
+
+    return checkoutSuccess;
   }
 
   /**
@@ -85,10 +91,18 @@ export class GitService {
    * @returns Object containing stash status
    */
   private handleWorkingDirectoryChanges(branchName: string): { pushedStash: boolean } {
-    const isDirty = !this.executeGitCommand('git diff --quiet && git diff --cached --quiet').success;
+    // Check for unstaged changes (working directory)
+    const hasUnstagedChanges = !this.executeGitCommand('git diff --quiet', 'Checking for unstaged changes').success;
+    
+    // Check for staged changes (index)
+    const hasStagedChanges = !this.executeGitCommand('git diff --cached --quiet', 'Checking for staged changes').success;
+    
+    const isDirty = hasUnstagedChanges || hasStagedChanges;
     let pushedStash = false;
 
     if (isDirty) {
+      logger.debug(`Repository is dirty: unstaged=${hasUnstagedChanges}, staged=${hasStagedChanges}`);
+      
       const stashMessage = `auto-stash: checkout -> ${branchName}`;
       const stashResult = this.executeGitCommand(
         `git stash push -u -m "${stashMessage}"`,
@@ -100,6 +114,8 @@ export class GitService {
         return { pushedStash: false };
       }
       pushedStash = true;
+    } else {
+      logger.debug('Repository is clean, no stash needed');
     }
 
     return { pushedStash };
@@ -154,8 +170,9 @@ export class GitService {
    * @param branchName The branch name to checkout
    * @param remoteName The remote name to use
    * @param pushedStash Whether stash was pushed (for rollback)
+   * @returns True if checkout was successful, false otherwise
    */
-  private checkoutExistingBranch(branchName: string, remoteName: string, pushedStash: boolean): void {
+  private checkoutExistingBranch(branchName: string, remoteName: string, pushedStash: boolean): boolean {
     const checkoutResult = this.executeGitCommand(
       `git checkout "${branchName}"`,
       `Switching to local branch ${branchName}`
@@ -163,7 +180,7 @@ export class GitService {
 
     if (!checkoutResult.success) {
       this.rollbackStash(pushedStash);
-      return;
+      return false;
     }
 
     // Check if remote branch still exists before attempting merge
@@ -181,7 +198,7 @@ export class GitService {
       );
 
       logger.info(`Checked out to local branch ${branchName} without remote tracking.`);
-      return;
+      return true;
     }
 
     // Attempt safe fast-forward to remote (no merge commits)
@@ -196,6 +213,8 @@ export class GitService {
         `Current commit preserved. To discard local divergence, manually run: git reset --hard ${remoteName}/${branchName}`
       );
     }
+
+    return true;
   }
 
   /**
@@ -203,8 +222,9 @@ export class GitService {
    * @param branchName The branch name to create
    * @param remoteName The remote name to use
    * @param pushedStash Whether stash was pushed (for rollback)
+   * @returns True if branch creation was successful, false otherwise
    */
-  private createTrackingBranch(branchName: string, remoteName: string, pushedStash: boolean): void {
+  private createTrackingBranch(branchName: string, remoteName: string, pushedStash: boolean): boolean {
     const createResult = this.executeGitCommand(
       `git checkout -b "${branchName}" "${remoteName}/${branchName}"`,
       `Creating local tracking branch ${branchName}`
@@ -212,7 +232,10 @@ export class GitService {
 
     if (!createResult.success) {
       this.rollbackStash(pushedStash);
+      return false;
     }
+
+    return true;
   }
 
   /**
@@ -281,7 +304,12 @@ export class GitService {
   }
 
   getUserName(): string {
-    return StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
+    try {
+      return StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
+    } catch (error) {
+      logger.warn('Failed to get git user name:', error);
+      return 'unknown-user';
+    }
   }
 
   /**
@@ -293,19 +321,24 @@ export class GitService {
     includeBinary?: boolean; 
     nameOnly?: boolean;
   } = {}): string {
-    const { includeBinary = false, nameOnly = false } = options;
-    
-    if (nameOnly) {
-      return this.shell.runProcess("git", "diff", "--cached", "--name-only");
+    try {
+      const { includeBinary = false, nameOnly = false } = options;
+      
+      if (nameOnly) {
+        return this.shell.runProcess("git", "diff", "--cached", "--name-only");
+      }
+      
+      if (includeBinary) {
+        // Force treat all files as text (may produce unreadable output for binary files)
+        return this.shell.runProcess("git", "diff", "--cached", "--text");
+      }
+      
+      // Default behavior: Exclude binary files to avoid unreadable output
+      return this.getDiffExcludingBinary();
+    } catch (error) {
+      logger.warn('Failed to get git diff:', error);
+      return '';
     }
-    
-    if (includeBinary) {
-      // Force treat all files as text (may produce unreadable output for binary files)
-      return this.shell.runProcess("git", "diff", "--cached", "--text");
-    }
-    
-    // Default behavior: Exclude binary files to avoid unreadable output
-    return this.getDiffExcludingBinary();
   }
 
   /**
@@ -355,8 +388,8 @@ export class GitService {
     try {
       const { cached = true, branchComparison } = options;
       
-      // Use git to check if file is binary
-      const args: string[] = ["git", "diff"];
+      // Use git to check if file is binary using runWithExitCode for better error handling
+      const args: string[] = ["diff"];
       
       if (branchComparison) {
         // For branch comparison
@@ -369,10 +402,16 @@ export class GitService {
       
       args.push("--numstat", "--", filePath);
       
-      const result = this.shell.runProcess(args[0], ...args.slice(1));
+      const result = this.shell.runWithExitCode("git", ...args);
+      
+      // Check if command succeeded
+      if (!result.success || result.exitCode !== 0) {
+        logger.debug(`Failed to check if ${filePath} is binary (exit code: ${result.exitCode}):`, result.output);
+        return false; // Assume not binary if we can't determine
+      }
       
       // Binary files show "-	-	filename" in numstat output
-      const lines = result.trim().split('\n');
+      const lines = result.output.trim().split('\n');
       for (const line of lines) {
         if (line.includes(filePath) && line.startsWith('-\t-\t')) {
           return true;
@@ -461,9 +500,14 @@ export class GitService {
       
       if (includeBinary) {
         // Include all files, treat binary as text (may produce unreadable output)
-        const diffOutput = this.shell.runProcess("git", "diff", "--text", `${baseBranch}...${targetBranch}`);
-        logger.debug(`Got diff between ${baseBranch} and ${targetBranch} (including binary)`);
-        return diffOutput;
+        const diffOutput = this.tryGetDiffBetweenBranches(baseBranch, targetBranch, ["--text"]);
+        if (diffOutput !== null) {
+          logger.debug(`Got diff between ${baseBranch} and ${targetBranch} (including binary)`);
+          return diffOutput;
+        } else {
+          logger.error(`Failed to get diff between ${baseBranch} and ${targetBranch}`);
+          return '';
+        }
       }
       
       // Default behavior: Filter out binary files
@@ -474,6 +518,37 @@ export class GitService {
       logger.error(`Error getting diff between branches ${baseBranch} and ${targetBranch}:`, error);
       return '';
     }
+  }
+
+  /**
+   * Try to get diff between branches using different formats
+   * @param baseBranch Base branch name
+   * @param targetBranch Target branch name
+   * @param extraArgs Extra arguments for git diff
+   * @returns Diff output or null if failed
+   */
+  private tryGetDiffBetweenBranches(baseBranch: string, targetBranch: string, extraArgs: string[] = []): string | null {
+    // Try different branch reference formats
+    const branchFormats = [
+      `${baseBranch}...${targetBranch}`,
+      `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
+      `${baseBranch}..${targetBranch}`,
+      `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+    ];
+
+    for (const format of branchFormats) {
+      const args = ["diff", ...extraArgs, format];
+      const result = this.shell.runWithExitCode("git", ...args);
+      
+      if (result.success && result.exitCode === 0) {
+        logger.debug(`Successfully got diff using format: ${format} (exit code: ${result.exitCode})`);
+        return result.output;
+      } else {
+        logger.debug(`Failed to get diff using format: ${format} (exit code: ${result.exitCode})`);
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -504,13 +579,17 @@ export class GitService {
         return 'All changed files between branches are binary files.';
       }
       
-      // Get diff for text files only
-      const args: string[] = ["git", "diff", `${baseBranch}...${targetBranch}`, "--"];
-      args.push(...textFiles);
-      return this.shell.runProcess(args[0], ...args.slice(1));
+      // Get diff for text files only using the helper method
+      const diffOutput = this.tryGetDiffBetweenBranches(baseBranch, targetBranch, ["--", ...textFiles]);
+      if (diffOutput !== null) {
+        return diffOutput;
+      } else {
+        logger.warn('Failed to get diff with all formats, trying fallback');
+        return this.tryGetDiffBetweenBranches(baseBranch, targetBranch) || '';
+      }
     } catch (error) {
       logger.warn('Error filtering binary files, falling back to default diff:', error);
-      return this.shell.runProcess("git", "diff", `${baseBranch}...${targetBranch}`);
+      return this.tryGetDiffBetweenBranches(baseBranch, targetBranch) || '';
     }
   }
 
@@ -527,9 +606,37 @@ export class GitService {
         return [];
       }
 
-      const filesOutput = this.shell.runProcess("git", "diff", "--name-only", `${baseBranch}...${targetBranch}`).trim();
-      const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
+      // First try with remote prefix for base branch
+      let filesOutput = '';
+      let success = false;
+      
+      // Try different branch reference formats
+      const branchFormats = [
+        `${baseBranch}...${targetBranch}`,
+        `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
+        `${baseBranch}..${targetBranch}`,
+        `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+      ];
 
+      for (const format of branchFormats) {
+        const result = this.shell.runWithExitCode("git", "diff", "--name-only", format);
+        
+        if (result.success && result.exitCode === 0) {
+          filesOutput = result.output.trim();
+          success = true;
+          logger.debug(`Successfully got changed files using format: ${format} (exit code: ${result.exitCode})`);
+          break;
+        } else {
+          logger.debug(`Failed to get changed files using format: ${format} (exit code: ${result.exitCode})`);
+        }
+      }
+
+      if (!success) {
+        logger.error(`Failed to get diff between ${baseBranch} and ${targetBranch} using all formats`);
+        return [];
+      }
+
+      const files = filesOutput ? filesOutput.split('\n').filter(Boolean) : [];
       logger.debug(`Found ${files.length} changed files between ${baseBranch} and ${targetBranch}`);
       return files;
     } catch (error) {
@@ -621,11 +728,20 @@ export class GitService {
   }
 
   getChangedFiles(limit?: number): string[] {
-    const files = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim().split("\n").filter(Boolean);
-    if (limit) {
-      return files.slice(0, limit);
+    try {
+      const output = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim();
+      if (!output) {
+        return [];
+      }
+      const files = output.split("\n").filter(Boolean);
+      if (limit) {
+        return files.slice(0, limit);
+      }
+      return files;
+    } catch (error) {
+      logger.warn('Failed to get changed files:', error);
+      return [];
     }
-    return files;
   }
 
   /**
@@ -964,9 +1080,9 @@ export class GitService {
       // Fallback for older git versions
       try {
         const result = this.shell.runProcess("git", "rev-parse", "--abbrev-ref", "HEAD").trim();
-        return result === 'HEAD' ? 'detached' : result;
+        return result === 'HEAD' ? '' : result;
       } catch (fallbackError) {
-        return 'unknown';
+        return '';
       }
     }
   }
@@ -979,11 +1095,11 @@ export class GitService {
     try {
       // Try to get the default branch from git remote
       const currentBranch = this.getCurrentBranch();
-      if (this.hasRemoteBranch(currentBranch)) {
+      if (currentBranch && this.hasRemoteBranch(currentBranch)) {
         return currentBranch;
       }
 
-      logger.debug(`Current branch ${currentBranch} does not exist in remote`);
+      logger.debug(`Current branch \`${currentBranch}\` does not exist in remote`);
 
       const baseBranch = this.getBaseBranch();
       if (baseBranch && this.hasRemoteBranch(baseBranch)) {
@@ -1001,14 +1117,14 @@ export class GitService {
       const defaultBranches = ['main', 'master', 'develop', 'dev'];
 
       // If current branch is one of the default branches and exists remotely, use it
-      if (defaultBranches.includes(currentBranch) && remoteBranches.includes(currentBranch)) {
+      if (currentBranch && defaultBranches.includes(currentBranch) && remoteBranches.includes(currentBranch)) {
         return currentBranch;
       }
 
       // Otherwise, try to find the default branch by checking which exists
       for (const branch of defaultBranches) {
         if (remoteBranches.includes(branch)) {
-          logger.debug(`Using ${branch} as target branch`);
+          logger.debug(`Using \`${branch}\` as target branch`);
           return branch;
         }
       }
@@ -1227,7 +1343,7 @@ export class GitService {
 
       // Current branch
       const currentBranch = this.getCurrentBranch();
-      logger.info(`Current Branch: ${currentBranch}`);
+      logger.info(`Current Branch: \`${currentBranch}\``);
 
       // Current commit
       const currentCommit = this.getCurrentCommit();

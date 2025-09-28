@@ -359,6 +359,11 @@ export abstract class BaseAiflowApp {
     const currentBranch = this.git.getCurrentBranch();
     logger.info(`🌿 Current branch: ${currentBranch}`);
 
+    if (!currentBranch) {
+      logger.error("❌ Could not detect current branch or in detached HEAD. Please stage some changes.");
+      return;
+    }
+
     // Step 2: Detect base branch
     const baseBranch = this.git.getBaseBranch();
     if (!baseBranch) {
@@ -518,6 +523,10 @@ ${'-'.repeat(50)}
 
       // Step 2: Determine target branch
       const currentBranch = this.git.getCurrentBranch();
+      if (!currentBranch) {
+        logger.error("❌ Could not detect current branch or in detached HEAD. Please stage some changes.");
+        return;
+      }
       logger.info(`🌿 Current branch: ${currentBranch}`);
       const targetBranch = this.git.getTargetBranch();
       logger.info(`🎯 Target branch: ${targetBranch}`);
@@ -662,6 +671,18 @@ ${description}
 `);
   }
 
+  static showVersionShort(): void {
+    const packageJson = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
+    const version = packageJson.version;
+    const name = packageJson.name;
+    if(process.stdout.isTTY) {
+      logger.info(`${'='.repeat(10)} ${name} v${version} started. ${'='.repeat(10)}`);
+    }
+    else {
+      logger.info(`${name} v${version} started.`);
+    }
+  }
+
   /**
    * Display usage information
    */
@@ -771,6 +792,8 @@ Examples:
       // Don't let update check failures block the main application
       logger.warn('⚠️ Update check failed:', error instanceof Error ? error.message : 'Unknown error');
     }
+
+    GitAutoMrApp.showVersionShort();
 
     // Check for commit-only mode early (before config validation)
     const isCommitOnly = args.includes('--commit-only') || args.includes('-co') || args.includes('-cmo');
