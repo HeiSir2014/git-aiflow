@@ -413,16 +413,18 @@ export class GitService {
    * @param options Options for binary detection
    * @returns True if file is binary, false otherwise
    */
-  private isBinaryFile(filePath: string, options: { 
-    cached?: boolean; 
+  private isBinaryFile(filePath: string, options: {
+    cached?: boolean;
     branchComparison?: string;
   } = {}): boolean {
     try {
       const { cached = true, branchComparison } = options;
-      
+
       // Use git to check if file is binary using runWithExitCode for better error handling
-      const args: string[] = ["diff"];
-      
+      // Git diff syntax: git diff [options] <commit> [--] [<path>...]
+      // Options MUST come before the commit range
+      const args: string[] = ["diff", "--numstat"];
+
       if (branchComparison) {
         // For branch comparison
         args.push(branchComparison);
@@ -431,9 +433,9 @@ export class GitService {
         args.push("--cached");
       }
       // For unstaged changes, no additional flag needed
-      
-      args.push("--numstat", "--", filePath);
-      
+
+      args.push("--", filePath);
+
       const result = this.shell.runWithExitCode("git", ...args);
       
       // Check if command succeeded
@@ -561,11 +563,13 @@ export class GitService {
    */
   private tryGetDiffBetweenBranches(baseBranch: string, targetBranch: string, extraArgs: string[] = []): string | null {
     // Try different branch reference formats
+    // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
+    // Three-dot (...) syntax shows changes from merge-base to target, which is NOT what we want
     const branchFormats = [
-      `${baseBranch}...${targetBranch}`,
-      `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
       `${baseBranch}..${targetBranch}`,
-      `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+      `${this.getRemoteName()}/${baseBranch}..${targetBranch}`,
+      `${baseBranch}...${targetBranch}`,
+      `${this.getRemoteName()}/${baseBranch}...${targetBranch}`
     ];
 
     for (const format of branchFormats) {
@@ -602,7 +606,7 @@ export class GitService {
       const textFiles: string[] = [];
       
       for (const file of changedFiles) {
-        if (!this.isBinaryFile(file, { branchComparison: `${baseBranch}...${targetBranch}` })) {
+        if (!this.isBinaryFile(file, { branchComparison: `${baseBranch}..${targetBranch}` })) {
           textFiles.push(file);
         }
       }
@@ -643,11 +647,12 @@ export class GitService {
       let success = false;
       
       // Try different branch reference formats
+      // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
       const branchFormats = [
-        `${baseBranch}...${targetBranch}`,
-        `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
         `${baseBranch}..${targetBranch}`,
-        `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+        `${this.getRemoteName()}/${baseBranch}..${targetBranch}`,
+        `${baseBranch}...${targetBranch}`,
+        `${this.getRemoteName()}/${baseBranch}...${targetBranch}`
       ];
 
       for (const format of branchFormats) {
