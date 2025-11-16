@@ -573,7 +573,9 @@ export class GitService {
     ];
 
     for (const format of branchFormats) {
-      const args = ["diff", ...extraArgs, format];
+      // Git diff syntax: git diff [options] <commit> [--] [<path>...]
+      // The commit range MUST come before the file paths
+      const args = ["diff", format, ...extraArgs];
       const result = this.shell.runWithExitCode("git", ...args);
       
       if (result.success && result.exitCode === 0) {
