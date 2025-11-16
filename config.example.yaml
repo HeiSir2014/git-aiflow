@@ -5,12 +5,24 @@
 openai:
   # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
   key: your-openai-api-key
-  
+
   # OpenAI API 基础URL (必需) - API请求的端点地址
   baseUrl: https://api.openai.com/v1
-  
+
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: gpt-3.5-turbo
+
+  # 模型最大上下文token数 (可选) - 手动指定模型的最大上下文长度，默认为8192
+  # 常见模型推荐值：
+  #   gpt-3.5-turbo: 4096 或 16384 (取决于具体版本)
+  #   gpt-4: 8192
+  #   gpt-4-turbo/gpt-4o: 128000
+  #   gpt-4o-mini: 128000
+  #   claude-3.5-sonnet: 200000
+  #   deepseek-v3: 64000
+  #   qwen2.5: 32768
+  # 💡 提示：查看您使用的模型文档以确定正确的上下文长度
+  max_context_tokens: 16384
 
 # Git 访问令牌配置 - 支持多个Git托管平台
 git_access_tokens:
