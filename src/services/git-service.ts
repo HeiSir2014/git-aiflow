@@ -562,6 +562,8 @@ export class GitService {
    * @returns Diff output or null if failed
    */
   private tryGetDiffBetweenBranches(baseBranch: string, targetBranch: string, extraArgs: string[] = []): string | null {
+    const repoRoot = this.getRepositoryRoot();
+
     // Try different branch reference formats
     // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
     // Three-dot (...) syntax shows changes from merge-base to target, which is NOT what we want
@@ -575,7 +577,7 @@ export class GitService {
     for (const format of branchFormats) {
       // Git diff syntax: git diff [options] <commit> [--] [<path>...]
       // The commit range MUST come before the file paths
-      const args = ["diff", format, ...extraArgs];
+      const args = ["-C", repoRoot, "diff", format, ...extraArgs];
       const result = this.shell.runWithExitCode("git", ...args);
       
       if (result.success && result.exitCode === 0) {
@@ -644,10 +646,12 @@ export class GitService {
         return [];
       }
 
+      const repoRoot = this.getRepositoryRoot();
+
       // First try with remote prefix for base branch
       let filesOutput = '';
       let success = false;
-      
+
       // Try different branch reference formats
       // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
       const branchFormats = [
@@ -658,7 +662,7 @@ export class GitService {
       ];
 
       for (const format of branchFormats) {
-        const result = this.shell.runWithExitCode("git", "diff", "--name-only", format);
+        const result = this.shell.runWithExitCode("git", "-C", repoRoot, "diff", "--name-only", format);
         
         if (result.success && result.exitCode === 0) {
           filesOutput = result.output.trim();
