@@ -9,20 +9,20 @@ import { parse } from 'shell-quote';
  * - macOS/Linux: bash or zsh
  */
 export class Shell {
-  private static readonly instances = new Map<string, Shell>();
+  private static _instance: Shell | null = null;
 
   private constructor() {
     logger.debug(`Initializing Shell, platform: ${platform()} process.cwd: ${process.cwd()}`);
   }
 
   static instance(): Shell {
-    const pwd = process.cwd();
-    if (Shell.instances.get(pwd)) {
-      return Shell.instances.get(pwd)!;
+    // Shell should be a true singleton, not cached per directory
+    // Git commands will automatically find the .git directory by traversing up
+    if (Shell._instance) {
+      return Shell._instance;
     }
-    const shell = new Shell();
-    Shell.instances.set(pwd, shell);
-    return shell;
+    Shell._instance = new Shell();
+    return Shell._instance;
   }
   /**
    * Execute a shell command and return stdout as string
@@ -50,6 +50,7 @@ export class Shell {
       }
 
       // Always use shell: false to avoid command injection
+      // Git commands work correctly from subdirectories as git traverses up to find .git
       const result: SpawnSyncReturns<string> = spawnSync(
         command,
         commandArgs,

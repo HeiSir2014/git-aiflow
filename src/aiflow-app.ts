@@ -43,7 +43,8 @@ export abstract class BaseAiflowApp {
       getConfigValue(this.config, 'openai.key', '') || '',
       getConfigValue(this.config, 'openai.baseUrl', 'https://api.openai.com/v1') || 'https://api.openai.com/v1',
       getConfigValue(this.config, 'openai.model', 'gpt-3.5-turbo') || 'gpt-3.5-turbo',
-      getConfigValue(this.config, 'openai.reasoning', false) || false
+      getConfigValue(this.config, 'openai.reasoning', false) || false,
+      getConfigValue(this.config, 'openai.max_context_tokens', undefined)
     );
 
     // Create platform-specific service using factory (fully automatic)

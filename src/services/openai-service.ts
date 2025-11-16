@@ -102,19 +102,18 @@ export class OpenAiService {
   private readonly client: OpenAI;
   private readonly model: string;
   private readonly reasoning: boolean | ReasoningConfig;
+  private readonly maxContextTokens: number;
 
-  /** Cache for storing detected context limits by model name */
-  private static readonly contextLimitCache = new Map<string, number>();
-  
   /** Cache for the latest throughput statistics */
   private lastThroughputStats: ThroughputStats | null = null;
-  
+
   /** History of throughput statistics (limited to last 10 requests) */
   private throughputHistory: ThroughputStats[] = [];
 
-  constructor(apiKey: string, apiUrl: string, model: string, reasoning: boolean | ReasoningConfig = false) {
+  constructor(apiKey: string, apiUrl: string, model: string, reasoning: boolean | ReasoningConfig = false, maxContextTokens?: number) {
     this.model = model;
     this.reasoning = reasoning;
+    this.maxContextTokens = maxContextTokens ?? 8192; // Default to 8K tokens if not specified
     
     // Initialize OpenAI client
     this.client = new OpenAI({
@@ -133,10 +132,11 @@ export class OpenAiService {
       },
     });
     
-    logger.info(`Initialized OpenAI service`, { 
-      baseURL: this.client.baseURL, 
-      model: this.model, 
-      reasoning: this.reasoning 
+    logger.info(`Initialized OpenAI service`, {
+      baseURL: this.client.baseURL,
+      model: this.model,
+      maxContextTokens: this.maxContextTokens,
+      reasoning: this.reasoning
     });
   }
 
@@ -178,15 +178,15 @@ export class OpenAiService {
         language = 'en';
       }
 
-      // Detect model context limit with adaptive strategy
-      const contextLimit = await this.detectContextLimit();
+      // Use configured context limit
+      const contextLimit = this.maxContextTokens;
       // Dynamically adjust reserved tokens based on model
       const RESERVED_TOKENS = this.calculateReservedTokens(contextLimit);
       const availableTokens = contextLimit - RESERVED_TOKENS;
 
       // Estimate token count for the diff
       const diffTokens = this.estimateTokenCount(diff);
-      logger.info(`Estimated diff tokens: ${diffTokens}, available tokens: ${availableTokens}`);
+      logger.info(`Estimated diff tokens: ${diffTokens}, available tokens: ${availableTokens}, context limit: ${contextLimit}`);
 
       // Use direct processing for small diffs
       if (diffTokens <= availableTokens) {
@@ -283,297 +283,6 @@ export class OpenAiService {
     } as CommitGenerationResult;
   }
 
-  /**
-   * Detect the context length limit for the current model.
-   * Supports various AI models including OpenAI, DeepSeek, Qwen, Kimi, Ollama, etc.
-   * Also handles model variants with similar context limits.
-   * 
-   * @returns Promise resolving to the token limit for the model
-   */
-  private async detectContextLimit(): Promise<number> {
-    // Return cached result if available
-    if (OpenAiService.contextLimitCache.has(this.model)) {
-      return OpenAiService.contextLimitCache.get(this.model)!;
-    }
-
-    try {
-      const limit = this.getModelContextLimit(this.model);
-      logger.debug(`Using context limit for model ${this.model}: ${limit} tokens`);
-
-      // Cache the result
-      OpenAiService.contextLimitCache.set(this.model, limit);
-      return limit;
-    } catch (error) {
-      logger.warn(`Failed to detect context limit for model ${this.model}, attempting reverse detection:`, error);
-
-      // Try reverse detection with progressively larger context sizes
-      const reverseLimits = [1024 * 1024, 512 * 1024, 256 * 1024, 128 * 1024, 64 * 1024, 32 * 1024, 16 * 1024, 8 * 1024, 4 * 1024];
-      for (const testLimit of reverseLimits) {
-        try {
-          const success = await this.testContextLimit(testLimit);
-          if (success) {
-            logger.info(`Reverse detection successful: model ${this.model} supports ${testLimit} tokens`);
-            OpenAiService.contextLimitCache.set(this.model, testLimit);
-            return testLimit;
-          }
-        } catch (testError) {
-          logger.debug(`Context limit test failed for ${testLimit} tokens:`, testError);
-          continue;
-        }
-      }
-
-      // Fallback to a more reasonable default for modern models
-      const FALLBACK_LIMIT = 8192; // More reasonable default for modern LLMs
-      logger.warn(`Reverse detection failed, using fallback limit: ${FALLBACK_LIMIT}`);
-      OpenAiService.contextLimitCache.set(this.model, FALLBACK_LIMIT);
-      return FALLBACK_LIMIT;
-    }
-  }
-
-  /**
-   * Test if a model can handle a specific context limit by making a small API call.
-   * 
-   * @param contextLimit The context limit to test
-   * @returns Promise resolving to true if the limit is supported
-   */
-  private async testContextLimit(contextLimit: number): Promise<boolean> {
-    try {
-      // Create a test prompt that approaches but doesn't exceed the limit
-      const testTokens = Math.floor(contextLimit * 0.8); // Use 80% of limit for safety
-      const testContent = 'x'.repeat(testTokens * 4); // Approximate 4 chars per token
-      const testBody = {
-        model: this.model,
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful assistant. Respond with 'OK'."
-          },
-          {
-            role: "user",
-            content: `Test message: ${testContent.substring(0, Math.min(testContent.length, 1000))}...` // Truncate for logging
-          }
-        ],
-        max_tokens: 10, // Minimal response
-        temperature: 0,
-        extra_body: {
-          usage: {
-            include: true,
-          },
-        }
-      } as any;
-      const response = await this.client.chat.completions.create(testBody);
-
-      // If we get a response, the context limit is supported
-      return response.choices && response.choices.length > 0;
-    } catch (error: any) {
-      // Check if error is context-related
-      const errorMessage = error.message?.toLowerCase() || '';
-      const isContextError = errorMessage.includes('context') ||
-        errorMessage.includes('token') ||
-        errorMessage.includes('length') ||
-        errorMessage.includes('too long');
-
-      if (isContextError) {
-        logger.debug(`Context limit ${contextLimit} exceeded for model ${this.model}`);
-        return false;
-      }
-
-      // Other errors might not be context-related, so we can't conclude
-      throw error;
-    }
-  }
-
-  /**
-   * Get context limit for a specific model, including variant handling.
-   * 
-   * @param modelName The model name to check
-   * @returns Token limit for the model
-   */
-  private getModelContextLimit(modelName: string): number {
-    const DEFAULT_LIMIT = 4096;
-    const modelLower = modelName.toLowerCase();
-
-    // Exact model name matches
-    const EXACT_LIMITS: Record<string, number> = {
-      // OpenAI GPT models
-      'gpt-3.5-turbo': 4096,
-      'gpt-3.5-turbo-16k': 16384,
-      'gpt-3.5-turbo-0301': 4096,
-      'gpt-3.5-turbo-0613': 4096,
-      'gpt-3.5-turbo-1106': 16384,
-      'gpt-3.5-turbo-0125': 16384,
-      'gpt-4': 8192,
-      'gpt-4-0314': 8192,
-      'gpt-4-0613': 8192,
-      'gpt-4-32k': 32768,
-      'gpt-4-32k-0314': 32768,
-      'gpt-4-32k-0613': 32768,
-      'gpt-4-turbo': 128000,
-      'gpt-4-turbo-preview': 128000,
-      'gpt-4-1106-preview': 128000,
-      'gpt-4-0125-preview': 128000,
-      'gpt-4o': 128000,
-      'gpt-4o-2024-05-13': 128000,
-      'gpt-4o-2024-08-06': 128000,
-      'gpt-4o-mini': 128000,
-      'gpt-4o-mini-2024-07-18': 128000,
-
-      // DeepSeek models
-      'deepseek-coder': 16384,
-      'deepseek-chat': 32768,
-      'deepseek-v2': 128000,
-      'deepseek-v2.5': 128000,
-      'deepseek-v3': 128000,
-      'deepseek-v3.1': 128000,
-      'deepseekv3': 128000,
-      'deepseekv31': 128000,
-      'deepseek-coder-v2': 128000,
-      'deepseek/deepseek-chat-v3.1:free': 163800,
-
-      // Grok models
-      'x-ai/grok-4-fast:free': 2000000,
-
-      // Qwen models
-      'qwen-turbo': 8192,
-      'qwen-plus': 32768,
-      'qwen-max': 32768,
-      'qwen2': 32768,
-      'qwen2.5': 32768,
-      'qwen3': 128000,
-      'qwen3-coder': 128000,
-      'qwen-coder-plus': 128000,
-      'qwen-coder-turbo': 128000,
-
-      // Kimi (Moonshot) models
-      'moonshot-v1-8k': 8192,
-      'moonshot-v1-32k': 32768,
-      'moonshot-v1-128k': 128000,
-      'kimi-chat': 128000,
-
-      // Claude models
-      'claude-3-haiku': 200000,
-      'claude-3-sonnet': 200000,
-      'claude-3-opus': 200000,
-      'claude-3-5-sonnet': 200000,
-      'claude-3-5-haiku': 200000,
-
-      // Gemini models
-      'gemini-pro': 32768,
-      'gemini-1.5-pro': 1048576, // 1M tokens
-      'gemini-1.5-flash': 1048576,
-      'gemini-ultra': 32768,
-
-      // Yi models
-      'yi-34b-chat': 4096,
-      'yi-6b-chat': 4096,
-      'yi-large': 32768,
-      'yi-medium': 16384,
-
-      // Baichuan models
-      'baichuan2-turbo': 32768,
-      'baichuan2-turbo-192k': 192000,
-
-      // ChatGLM models
-      'glm-4': 128000,
-      'glm-4v': 128000,
-      'glm-3-turbo': 128000,
-      'chatglm3-6b': 8192,
-
-      // Ollama common models (estimated based on model architecture)
-      'llama2': 4096,
-      'llama2:70b': 4096,
-      'llama3': 8192,
-      'llama3:70b': 8192,
-      'llama3.1': 128000,
-      'llama3.1:70b': 128000,
-      'llama3.1:405b': 128000,
-      'codellama': 16384,
-      'codellama:34b': 16384,
-      'mistral': 32768,
-      'mixtral': 32768,
-      'phi3': 128000,
-      'gemma': 8192,
-      'gemma2': 8192,
-      'qwen2.5:72b': 32768,
-    };
-
-    // Check for exact match first
-    if (EXACT_LIMITS[modelLower]) {
-      return EXACT_LIMITS[modelLower];
-    }
-
-    // Pattern-based matching for variants and custom deployments
-    const MODEL_PATTERNS: Array<{ pattern: RegExp, limit: number, description: string }> = [
-      // DeepSeek variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?3\.?1/i, limit: 32000, description: 'DeepSeek V3.1 variants' },
-      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?3/i, limit: 32000, description: 'DeepSeek V3 variants' },
-      { pattern: /(^|\/|:)(x)?deepseek[-_]?v?2\.?5?/i, limit: 8000, description: 'DeepSeek V2/V2.5 variants' },
-      { pattern: /(^|\/|:)(x)?deepseek[-_]?coder/i, limit: 32000, description: 'DeepSeek Coder variants' },
-      { pattern: /(^|\/|:)(x)?deepseek/i, limit: 8000, description: 'Other DeepSeek variants' },
-
-      // Qwen variants (support model names with provider prefix like "qwen/")
-      { pattern: /(^|\/|:)qwen[-_]?3[-_]?coder/i, limit: 128000, description: 'Qwen3 Coder variants' },
-      { pattern: /(^|\/|:)qwen[-_]?3/i, limit: 128000, description: 'Qwen3 variants' },
-      { pattern: /(^|\/|:)qwen[-_]?2\.?5/i, limit: 32768, description: 'Qwen2.5 variants' },
-      { pattern: /(^|\/|:)qwen[-_]?2/i, limit: 32768, description: 'Qwen2 variants' },
-      { pattern: /(^|\/|:)qwen[-_]?(coder|plus)/i, limit: 128000, description: 'Qwen Coder/Plus variants' },
-      { pattern: /(^|\/|:)qwen[-_]?max/i, limit: 32768, description: 'Qwen Max variants' },
-      { pattern: /(^|\/|:)qwen/i, limit: 8192, description: 'Other Qwen variants' },
-
-      // GPT variants and custom deployments (support model names with provider prefix)
-      { pattern: /(^|\/|:)gpt[-_]?4o[-_]?mini/i, limit: 128000, description: 'GPT-4o mini variants' },
-      { pattern: /(^|\/|:)gpt[-_]?4o/i, limit: 128000, description: 'GPT-4o variants' },
-      { pattern: /(^|\/|:)gpt[-_]?4[-_]?turbo/i, limit: 128000, description: 'GPT-4 turbo variants' },
-      { pattern: /(^|\/|:)gpt[-_]?4[-_]?32k/i, limit: 32768, description: 'GPT-4 32K variants' },
-      { pattern: /(^|\/|:)gpt[-_]?4/i, limit: 8192, description: 'GPT-4 variants' },
-      { pattern: /(^|\/|:)gpt[-_]?3\.?5[-_]?turbo[-_]?16k/i, limit: 16384, description: 'GPT-3.5 turbo 16K variants' },
-      { pattern: /(^|\/|:)gpt[-_]?3\.?5/i, limit: 4096, description: 'GPT-3.5 variants' },
-
-      // Claude variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)claude[-_]?3[-_]?5/i, limit: 200000, description: 'Claude 3.5 variants' },
-      { pattern: /(^|\/|:)claude[-_]?3/i, limit: 200000, description: 'Claude 3 variants' },
-
-      // Gemini variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)gemini[-_]?1\.?5/i, limit: 1048576, description: 'Gemini 1.5 variants' },
-      { pattern: /(^|\/|:)gemini/i, limit: 32768, description: 'Other Gemini variants' },
-
-      // Kimi/Moonshot variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)(kimi|moonshot)[-_]?.*128k/i, limit: 128000, description: 'Kimi/Moonshot 128K variants' },
-      { pattern: /(^|\/|:)(kimi|moonshot)[-_]?.*32k/i, limit: 32768, description: 'Kimi/Moonshot 32K variants' },
-      { pattern: /(^|\/|:)(kimi|moonshot)/i, limit: 128000, description: 'Other Kimi/Moonshot variants' },
-
-      // LLaMA variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)llama[-_]?3\.?1/i, limit: 128000, description: 'LLaMA 3.1 variants' },
-      { pattern: /(^|\/|:)llama[-_]?3/i, limit: 8192, description: 'LLaMA 3 variants' },
-      { pattern: /(^|\/|:)llama[-_]?2/i, limit: 4096, description: 'LLaMA 2 variants' },
-      { pattern: /(^|\/|:)codellama/i, limit: 16384, description: 'CodeLlama variants' },
-
-      // Other model families (support model names with provider prefix)
-      { pattern: /(^|\/|:)mixtral/i, limit: 32768, description: 'Mixtral variants' },
-      { pattern: /(^|\/|:)mistral/i, limit: 32768, description: 'Mistral variants' },
-      { pattern: /(^|\/|:)phi[-_]?3/i, limit: 128000, description: 'Phi-3 variants' },
-      { pattern: /(^|\/|:)yi[-_]?large/i, limit: 32768, description: 'Yi Large variants' },
-      { pattern: /(^|\/|:)yi/i, limit: 4096, description: 'Other Yi variants' },
-      { pattern: /(^|\/|:)glm[-_]?4/i, limit: 128000, description: 'GLM-4 variants' },
-      { pattern: /(^|\/|:)chatglm/i, limit: 8192, description: 'ChatGLM variants' },
-
-      // Grok variants (support model names with provider prefix)
-      { pattern: /(^|\/|:)x[-_]?ai[-_]?grok[-_]?4[-_]?fast/i, limit: 2000000, description: 'Grok 4 Fast variants' },
-      { pattern: /(^|\/|:)x[-_]?ai/i, limit: 2000000, description: 'Other Grok variants' },
-    ];
-
-    // Try pattern matching
-    for (const { pattern, limit, description } of MODEL_PATTERNS) {
-      if (pattern.test(modelName)) {
-        logger.debug(`Matched ${modelName} with pattern for ${description}, limit: ${limit}`);
-        return limit;
-      }
-    }
-
-    // Default fallback
-    logger.debug(`No specific limit found for model ${modelName}, using default ${DEFAULT_LIMIT}`);
-    return DEFAULT_LIMIT;
-  }
 
   /**
    * Estimate token count for text using an improved approach that handles different character types.
@@ -923,33 +632,38 @@ ${batchSummaries}`,
   /**
    * Calculate reserved tokens based on model context limit.
    * Reserves space for system prompt, response, and safety buffer.
-   * 
+   *
    * @param contextLimit Total context limit for the model
    * @returns Number of tokens to reserve
    */
   private calculateReservedTokens(contextLimit: number): number {
-    // Base system prompt tokens (estimated)
-    const SYSTEM_PROMPT_TOKENS = 800;
+    // System prompt tokens (increased for more complex prompts)
+    const SYSTEM_PROMPT_TOKENS = 1200;
 
-    // Expected response tokens (commit + branch + description)
-    const RESPONSE_TOKENS = 1000;
+    // Expected response tokens (commit + branch + description + title)
+    const RESPONSE_TOKENS = 1500;
 
     // Safety buffer percentage based on context size
     let bufferPercentage: number;
     if (contextLimit >= 128000) {
       bufferPercentage = 0.05; // 5% for large context models
     } else if (contextLimit >= 32000) {
-      bufferPercentage = 0.10; // 10% for medium context models
+      bufferPercentage = 0.08; // 8% for medium context models
     } else if (contextLimit >= 8000) {
-      bufferPercentage = 0.15; // 15% for smaller context models
+      bufferPercentage = 0.12; // 12% for smaller context models
     } else {
-      bufferPercentage = 0.20; // 20% for very small context models
+      bufferPercentage = 0.15; // 15% for very small context models
     }
 
     const bufferTokens = Math.ceil(contextLimit * bufferPercentage);
     const totalReserved = SYSTEM_PROMPT_TOKENS + RESPONSE_TOKENS + bufferTokens;
 
-    logger.debug(`Reserved tokens calculation: system=${SYSTEM_PROMPT_TOKENS}, response=${RESPONSE_TOKENS}, buffer=${bufferTokens} (${(bufferPercentage * 100).toFixed(1)}%), total=${totalReserved}`);
+    logger.debug(
+      `Reserved tokens: system=${SYSTEM_PROMPT_TOKENS}, ` +
+      `response=${RESPONSE_TOKENS}, ` +
+      `buffer=${bufferTokens} (${(bufferPercentage * 100).toFixed(1)}%), ` +
+      `total=${totalReserved} / ${contextLimit} (${((totalReserved / contextLimit) * 100).toFixed(1)}%)`
+    );
 
     return totalReserved;
   }
