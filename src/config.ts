@@ -72,6 +72,7 @@ export interface AiflowConfig {
     key?: string;
     baseUrl?: string;
     model?: string;
+    max_context_tokens?: number;
     reasoning?: boolean | {
       enabled?: boolean;
       effort?: 'high' | 'medium' | 'low';
@@ -189,6 +190,7 @@ export class ConfigLoader {
       'OPENAI_KEY': 'openai.key',
       'OPENAI_BASE_URL': 'openai.baseUrl',
       'OPENAI_MODEL': 'openai.model',
+      'OPENAI_MAX_CONTEXT_TOKENS': 'openai.max_context_tokens',
       'OPENAI_REASONING': 'openai.reasoning',
       'CONAN_REMOTE_BASE_URL': 'conan.remoteBaseUrl',
       'CONAN_REMOTE_REPO': 'conan.remoteRepo',
@@ -217,8 +219,15 @@ export class ConfigLoader {
       if (envValue !== undefined) {
         let parsedValue = this.parseEnvValue(envValue);
 
+        // Handle number fields
+        if (configPath === 'openai.max_context_tokens') {
+          if (typeof parsedValue === 'string') {
+            const num = parseInt(parsedValue, 10);
+            parsedValue = isNaN(num) ? undefined : num;
+          }
+        }
         // Handle array fields for merge request configuration
-        if (configPath === 'merge_request.assignee_ids' || configPath === 'merge_request.reviewer_ids') {
+        else if (configPath === 'merge_request.assignee_ids' || configPath === 'merge_request.reviewer_ids') {
           if (typeof parsedValue === 'string') {
             // Parse comma-separated string to number array
             parsedValue = parsedValue.split(',').map(id => {
@@ -646,6 +655,11 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
         config.openai = { ...config.openai, model: value };
         i++;
         break;
+      case 'openai-max-context-tokens':
+        const maxTokens = parseInt(value, 10);
+        config.openai = { ...config.openai, max_context_tokens: isNaN(maxTokens) ? undefined : maxTokens };
+        i++;
+        break;
       case 'openai-reasoning':
         config.openai = { ...config.openai, reasoning: value !== 'false' };
         i++;
@@ -726,10 +740,11 @@ export function parseCliArgs(args: string[]): Partial<AiflowConfig> {
  */
 function getShortArgMapping(shortKey: string): string {
   const shortArgMap: Record<string, string> = {
-    // OpenAI shortcuts (OpenAI Key, OpenAI Base Url, OpenAI Model, OpenAI Reasoning)
+    // OpenAI shortcuts (OpenAI Key, OpenAI Base Url, OpenAI Model, OpenAI Max Context Tokens, OpenAI Reasoning)
     'ok': 'openai-key',
     'obu': 'openai-base-url',
     'om': 'openai-model',
+    'omct': 'openai-max-context-tokens',
     'or': 'openai-reasoning',
 
     // Git access token shortcuts (Git Access Token)
@@ -774,6 +789,7 @@ OpenAI 配置 - AI功能支持:
   -ok, --openai-key <key>               OpenAI API密钥 (必需，用于AI生成提交信息)
   -obu, --openai-base-url <url>         OpenAI API地址 (必需，API请求端点)
   -om, --openai-model <model>           OpenAI模型 (必需，如gpt-3.5-turbo、gpt-4)
+  -omct, --openai-max-context-tokens <num>  模型最大上下文token数 (可选，默认8192)
   -or, --openai-reasoning <bool>        启用推理模式 (可选，适用于o1等推理模型)
 
 Git 访问令牌配置 - 多平台支持:

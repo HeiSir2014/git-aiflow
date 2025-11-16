@@ -27,6 +27,9 @@ export class GitService {
   private static readonly instances = new Map<string, GitService>();
   private remote_name?: string;
   private remote_urls = new Map<string, string>();
+  private _repoRootCache?: string; // Cache for repository root
+  private _userNameCache?: string; // Cache for git user.name
+  private _userEmailCache?: string; // Cache for git user.email
 
   private constructor(shell?: Shell) {
     this.shell = shell || Shell.instance();
@@ -303,12 +306,37 @@ export class GitService {
     }
   }
 
+  /**
+   * Get git user name (cached after first call)
+   */
   getUserName(): string {
+    if (this._userNameCache) {
+      return this._userNameCache;
+    }
     try {
-      return StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
+      this._userNameCache = StringUtil.sanitizeName(this.shell.runProcess("git", "config", "user.name"));
+      return this._userNameCache;
     } catch (error) {
       logger.warn('Failed to get git user name:', error);
-      return 'unknown-user';
+      this._userNameCache = 'unknown-user';
+      return this._userNameCache;
+    }
+  }
+
+  /**
+   * Get git user email (cached after first call)
+   */
+  getUserEmail(): string {
+    if (this._userEmailCache) {
+      return this._userEmailCache;
+    }
+    try {
+      this._userEmailCache = this.shell.runProcess("git", "config", "user.email").trim();
+      return this._userEmailCache;
+    } catch (error) {
+      logger.warn('Failed to get git user email:', error);
+      this._userEmailCache = 'unknown@example.com';
+      return this._userEmailCache;
     }
   }
 
@@ -317,22 +345,23 @@ export class GitService {
    * @param options Diff options
    * @returns Git diff output
    */
-  getDiff(options: { 
-    includeBinary?: boolean; 
+  getDiff(options: {
+    includeBinary?: boolean;
     nameOnly?: boolean;
   } = {}): string {
     try {
       const { includeBinary = false, nameOnly = false } = options;
-      
+      const repoRoot = this.getRepositoryRoot();
+
       if (nameOnly) {
-        return this.shell.runProcess("git", "diff", "--cached", "--name-only");
+        return this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached", "--name-only");
       }
-      
+
       if (includeBinary) {
         // Force treat all files as text (may produce unreadable output for binary files)
-        return this.shell.runProcess("git", "diff", "--cached", "--text");
+        return this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached", "--text");
       }
-      
+
       // Default behavior: Exclude binary files to avoid unreadable output
       return this.getDiffExcludingBinary();
     } catch (error) {
@@ -347,31 +376,34 @@ export class GitService {
    */
   private getDiffExcludingBinary(): string {
     try {
+      const repoRoot = this.getRepositoryRoot();
+
       // Get list of staged files
       const stagedFiles = this.getChangedFiles();
-      
+
       if (stagedFiles.length === 0) {
         return '';
       }
-      
+
       // Filter out binary files
       const textFiles: string[] = [];
-      
+
       for (const file of stagedFiles) {
         if (!this.isBinaryFile(file, { cached: true })) {
           textFiles.push(file);
         }
       }
-      
+
       if (textFiles.length === 0) {
         return 'All staged files are binary files.';
       }
-      
+
       // Get diff for text files only
-      return this.shell.runProcess("git", "diff", "--cached", "--", ...textFiles);
+      return this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached", "--", ...textFiles);
     } catch (error) {
       logger.warn('Error filtering binary files, falling back to default diff:', error);
-      return this.shell.runProcess("git", "diff", "--cached");
+      const repoRoot = this.getRepositoryRoot();
+      return this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached");
     }
   }
 
@@ -381,16 +413,18 @@ export class GitService {
    * @param options Options for binary detection
    * @returns True if file is binary, false otherwise
    */
-  private isBinaryFile(filePath: string, options: { 
-    cached?: boolean; 
+  private isBinaryFile(filePath: string, options: {
+    cached?: boolean;
     branchComparison?: string;
   } = {}): boolean {
     try {
       const { cached = true, branchComparison } = options;
-      
+
       // Use git to check if file is binary using runWithExitCode for better error handling
-      const args: string[] = ["diff"];
-      
+      // Git diff syntax: git diff [options] <commit> [--] [<path>...]
+      // Options MUST come before the commit range
+      const args: string[] = ["diff", "--numstat"];
+
       if (branchComparison) {
         // For branch comparison
         args.push(branchComparison);
@@ -399,9 +433,9 @@ export class GitService {
         args.push("--cached");
       }
       // For unstaged changes, no additional flag needed
-      
-      args.push("--numstat", "--", filePath);
-      
+
+      args.push("--", filePath);
+
       const result = this.shell.runWithExitCode("git", ...args);
       
       // Check if command succeeded
@@ -528,16 +562,22 @@ export class GitService {
    * @returns Diff output or null if failed
    */
   private tryGetDiffBetweenBranches(baseBranch: string, targetBranch: string, extraArgs: string[] = []): string | null {
+    const repoRoot = this.getRepositoryRoot();
+
     // Try different branch reference formats
+    // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
+    // Three-dot (...) syntax shows changes from merge-base to target, which is NOT what we want
     const branchFormats = [
-      `${baseBranch}...${targetBranch}`,
-      `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
       `${baseBranch}..${targetBranch}`,
-      `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+      `${this.getRemoteName()}/${baseBranch}..${targetBranch}`,
+      `${baseBranch}...${targetBranch}`,
+      `${this.getRemoteName()}/${baseBranch}...${targetBranch}`
     ];
 
     for (const format of branchFormats) {
-      const args = ["diff", ...extraArgs, format];
+      // Git diff syntax: git diff [options] <commit> [--] [<path>...]
+      // The commit range MUST come before the file paths
+      const args = ["-C", repoRoot, "diff", format, ...extraArgs];
       const result = this.shell.runWithExitCode("git", ...args);
       
       if (result.success && result.exitCode === 0) {
@@ -570,7 +610,7 @@ export class GitService {
       const textFiles: string[] = [];
       
       for (const file of changedFiles) {
-        if (!this.isBinaryFile(file, { branchComparison: `${baseBranch}...${targetBranch}` })) {
+        if (!this.isBinaryFile(file, { branchComparison: `${baseBranch}..${targetBranch}` })) {
           textFiles.push(file);
         }
       }
@@ -606,20 +646,23 @@ export class GitService {
         return [];
       }
 
+      const repoRoot = this.getRepositoryRoot();
+
       // First try with remote prefix for base branch
       let filesOutput = '';
       let success = false;
-      
+
       // Try different branch reference formats
+      // IMPORTANT: Use two-dot (..) syntax first, which shows all changes from base to target
       const branchFormats = [
-        `${baseBranch}...${targetBranch}`,
-        `${this.getRemoteName()}/${baseBranch}...${targetBranch}`,
         `${baseBranch}..${targetBranch}`,
-        `${this.getRemoteName()}/${baseBranch}..${targetBranch}`
+        `${this.getRemoteName()}/${baseBranch}..${targetBranch}`,
+        `${baseBranch}...${targetBranch}`,
+        `${this.getRemoteName()}/${baseBranch}...${targetBranch}`
       ];
 
       for (const format of branchFormats) {
-        const result = this.shell.runWithExitCode("git", "diff", "--name-only", format);
+        const result = this.shell.runWithExitCode("git", "-C", repoRoot, "diff", "--name-only", format);
         
         if (result.success && result.exitCode === 0) {
           filesOutput = result.output.trim();
@@ -647,24 +690,29 @@ export class GitService {
 
   /**
    * Add specific file to staging area
-   * @param filePath File path to add
+   * @param filePath File path to add (relative to repository root or absolute)
    */
   addFile(filePath: string): void {
     logger.info(`Adding file: ${filePath}`);
-    this.shell.runProcess("git", "add", "-f", filePath);
+    // Use git -C to execute from repository root, ensuring paths are resolved correctly
+    // regardless of where the command is executed from
+    const repoRoot = this.getRepositoryRoot();
+    this.shell.runProcess("git", "-C", repoRoot, "add", "-f", filePath);
   }
 
   /**
    * Add multiple files to staging area
-   * @param filePaths Array of file paths to add
+   * @param filePaths Array of file paths to add (relative to repository root or absolute)
    */
   addFiles(filePaths: string[], batchSize = 1000): void {
     if (filePaths.length === 0) return;
 
     logger.info(`Adding ${filePaths.length} files in batches of ${batchSize}`);
+    const repoRoot = this.getRepositoryRoot();
     for (let i = 0; i < filePaths.length; i += batchSize) {
       const batch = filePaths.slice(i, i + batchSize);
-      this.shell.runProcess("git", "add", "-f", ...batch);
+      // Use git -C to execute from repository root
+      this.shell.runProcess("git", "-C", repoRoot, "add", "-f", ...batch);
     }
   }
 
@@ -674,7 +722,8 @@ export class GitService {
    */
   createBranch(branchName: string): void {
     logger.info(`Creating branch: ${branchName}`);
-    this.shell.runProcess("git", "checkout", "-b", branchName);
+    const repoRoot = this.getRepositoryRoot();
+    this.shell.runProcess("git", "-C", repoRoot, "checkout", "-b", branchName);
   }
 
   /**
@@ -684,6 +733,8 @@ export class GitService {
   commit(message: string): void {
     logger.info('Committing changes...');
     logger.debug(`Commit message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+    const repoRoot = this.getRepositoryRoot();
+
     if (!message.includes("\n")) {
       // 单行 commit
       const escapedMessage = message
@@ -691,11 +742,11 @@ export class GitService {
         .replace(/"/g, '\\"')
         .replace(/`/g, "\\`");
 
-      this.shell.runProcess("git", "commit", "-m", escapedMessage);
+      this.shell.runProcess("git", "-C", repoRoot, "commit", "-m", escapedMessage);
       return;
     }
     const lines = message.split(/\r?\n/).map(line => line.trimEnd());
-    const args: string[] = ["commit"];
+    const args: string[] = ["-C", repoRoot, "commit"];
     for (const line of lines) {
       args.push("-m", line);
     }
@@ -708,7 +759,8 @@ export class GitService {
    */
   push(branchName: string): void {
     logger.info(`Pushing branch: ${branchName}`);
-    this.shell.runProcess("git", "push", "-u", this.getRemoteName(), branchName);
+    const repoRoot = this.getRepositoryRoot();
+    this.shell.runProcess("git", "-C", repoRoot, "push", "-u", this.getRemoteName(), branchName);
   }
 
   /**
@@ -729,7 +781,8 @@ export class GitService {
 
   getChangedFiles(limit?: number): string[] {
     try {
-      const output = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim();
+      const repoRoot = this.getRepositoryRoot();
+      const output = this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached", "--name-only").trim();
       if (!output) {
         return [];
       }
@@ -746,9 +799,15 @@ export class GitService {
 
   /**
    * Get git repository root directory
+   * Result is cached after first call for performance
    */
   getRepositoryRoot(): string {
-    return this.shell.runProcess("git", "rev-parse", "--show-toplevel").trim();
+    if (this._repoRootCache) {
+      return this._repoRootCache;
+    }
+    this._repoRootCache = this.shell.runProcess("git", "rev-parse", "--show-toplevel").trim();
+    logger.debug(`Repository root cached: ${this._repoRootCache}`);
+    return this._repoRootCache;
   }
 
   /**
@@ -1215,7 +1274,8 @@ export class GitService {
    * Check if repository has uncommitted changes
    */
   hasUncommittedChanges(): boolean {
-    const status = this.shell.runProcess("git", "status", "--porcelain").trim();
+    const repoRoot = this.getRepositoryRoot();
+    const status = this.shell.runProcess("git", "-C", repoRoot, "status", "--porcelain").trim();
     return status.length > 0;
   }
 
@@ -1223,7 +1283,8 @@ export class GitService {
    * Check if repository has staged changes
    */
   hasStagedChanges(): boolean {
-    const status = this.shell.runProcess("git", "diff", "--cached", "--name-only").trim();
+    const repoRoot = this.getRepositoryRoot();
+    const status = this.shell.runProcess("git", "-C", repoRoot, "diff", "--cached", "--name-only").trim();
     return status.length > 0;
   }
 
@@ -1233,7 +1294,8 @@ export class GitService {
    */
   status(): GitFileStatus[] {
     try {
-      const statusOutput = this.shell.runProcess("git", "status", "--short", "--ignore-submodules", "--porcelain", "--untracked-files=all");
+      const repoRoot = this.getRepositoryRoot();
+      const statusOutput = this.shell.runProcess("git", "-C", repoRoot, "status", "--short", "--ignore-submodules", "--porcelain", "--untracked-files=all");
 
       if (!statusOutput) {
         return [];
@@ -1386,7 +1448,7 @@ export class GitService {
 
       // User information
       const userName = this.getUserName();
-      const userEmail = this.shell.runProcess("git", "config", "user.email").trim();
+      const userEmail = this.getUserEmail();
       logger.info(`Git User: ${userName} <${userEmail}>`);
 
     } catch (error) {
@@ -1398,109 +1460,110 @@ export class GitService {
 
   /**
    * Get the most likely parent branch of the current branch
+   * Tries multiple strategies to find the base branch:
+   * 1. Check upstream tracking branch
+   * 2. Check merge-base with common branches (main, master, develop)
+   * 3. Fallback to common branch names if they exist in remote
+   *
    * @returns Base branch name or null if not found or in detached HEAD
    */
   getBaseBranch(): string | null {
     try {
       const currentBranch = this.getCurrentBranch();
-      if (!currentBranch || currentBranch === 'HEAD') return null;
-
-      const remotes = this.shell
-        .runProcess("git", "remote")
-        .trim()
-        .split('\n')
-        .map(r => r.trim())
-        .filter(Boolean);
-
-      const logGraph = this.shell.runProcess(
-        "git",
-        "log",
-        "--graph",
-        "--oneline",
-        "--decorate",
-        "--all",
-        "--simplify-by-decoration"
-      );
-      const lines = logGraph.split('\n');
-
-      const normalizeRef = (r: string | undefined): string | null => {
-        if (!r) return null;
-        let ref = r.trim();
-        if (!ref) return null;
-        if (ref.startsWith('tag:')) return null;
-        const arrowMatch = ref.match(/->\s*(.+)$/);
-        if (arrowMatch) return arrowMatch[1].trim();
-        return ref;
-      };
-
-      let foundCurrentBranch = false;
-      let currentBranchColumn = 0;
-      
-      for (const line of lines) {
-        const match = line.match(/\((.*?)\)/);
-        if (!match) continue;
-
-        const rawRefs = match[1].split(',').map(r => r.trim()).filter(Boolean);
-        const normalizedRefs = rawRefs.map(r => normalizeRef(r)).filter(Boolean) as string[];
-
-        // Check if this line mentions the current branch
-        const mentionsCurrent = normalizedRefs.some(r =>
-          r === currentBranch || r.endsWith(`/${currentBranch}`)
-        );
-
-        if (mentionsCurrent) {
-          foundCurrentBranch = true;
-          currentBranchColumn = line.indexOf('*');
-          continue; // Skip the line that contains current branch
-        }
-
-        // Only look for candidates after we've found the current branch
-        if (!foundCurrentBranch) continue;
-
-        const candidateRaw = rawRefs.find(r => {
-          const nr = normalizeRef(r);
-          if (!nr) return false;
-          if (nr === currentBranch) return false;
-          if (nr === 'HEAD') return false;
-          if (r.startsWith('tag:')) return false;
-          if (r === 'origin/HEAD') return false;
-          return true;
-        });
-
-        if (!candidateRaw) continue;
-
-        let candidate = normalizeRef(candidateRaw)!;
-        let candidateColumn = line.indexOf('*');
-        if (candidateColumn === -1) {
-          continue;
-        }
-        if (candidateColumn > currentBranchColumn) {
-          continue;
-        }
-
-        for (const remote of remotes) {
-          const prefix = `${remote}/`;
-          if (candidate.startsWith(prefix)) {
-            candidate = candidate.slice(prefix.length);
-            break;
-          }
-        }
-
-        if (candidate === currentBranch) continue;
-
-        // Check if candidate exists in remote using accurate remote branch detection
-        if (!this.hasRemoteBranch(candidate)) {
-          logger.debug(`Skipped candidate '${candidate}' because it does not exist in remote.`);
-          continue;
-        }
-
-        logger.debug(`Detected base branch: ${candidate}`);
-        return candidate;
+      if (!currentBranch || currentBranch === 'HEAD') {
+        logger.debug('Not on a valid branch (detached HEAD or empty)');
+        return null;
       }
 
+      const repoRoot = this.getRepositoryRoot();
+      const remoteName = this.getRemoteName();
+
+      // Strategy 1: Check if branch has an upstream tracking branch
+      try {
+        const upstream = this.shell.runProcess(
+          "git", "-C", repoRoot, "rev-parse", "--abbrev-ref", `${currentBranch}@{upstream}`
+        ).trim();
+
+        if (upstream && upstream !== currentBranch) {
+          // upstream format: "origin/main" or "upstream/develop"
+          // Extract branch name without remote prefix
+          const upstreamBranch = upstream.split('/').slice(1).join('/');
+
+          // Verify the branch exists in remote
+          if (upstreamBranch && this.hasRemoteBranch(upstreamBranch)) {
+            logger.debug(`Base branch from upstream: ${upstreamBranch}`);
+            return upstreamBranch;
+          }
+        }
+      } catch (error) {
+        // No upstream configured, try other strategies
+        logger.debug('No upstream tracking branch configured');
+      }
+
+      // Strategy 2: Find merge-base with common branches
+      const commonBranches = ['main', 'master', 'develop', 'dev', 'trunk'];
+
+      for (const candidateBranch of commonBranches) {
+        // Skip if candidate is the current branch
+        if (candidateBranch === currentBranch) continue;
+
+        // Check if candidate exists in remote
+        if (!this.hasRemoteBranch(candidateBranch)) {
+          logger.debug(`Candidate '${candidateBranch}' does not exist in remote, skipping`);
+          continue;
+        }
+
+        try {
+          // Check if there's a merge-base (common ancestor)
+          const mergeBase = this.shell.runProcess(
+            "git", "-C", repoRoot, "merge-base", "HEAD", `${remoteName}/${candidateBranch}`
+          ).trim();
+
+          if (mergeBase) {
+            // Check if current branch has commits beyond the merge-base
+            const currentCommit = this.shell.runProcess(
+              "git", "-C", repoRoot, "rev-parse", "HEAD"
+            ).trim();
+
+            // If current HEAD is different from merge-base, this candidate is a valid base
+            if (currentCommit !== mergeBase) {
+              // Verify that merge-base is an ancestor of the candidate branch
+              // This ensures we branched from this candidate
+              try {
+                this.shell.runProcess(
+                  "git", "-C", repoRoot, "merge-base", "--is-ancestor", mergeBase, `${remoteName}/${candidateBranch}`
+                );
+                // If command succeeded (exit code 0), merge-base is an ancestor
+                logger.debug(`Found base branch via merge-base: ${candidateBranch}`);
+                return candidateBranch;
+              } catch (ancestorError) {
+                // Not an ancestor, try next candidate
+                logger.debug(`Merge-base is not an ancestor of '${candidateBranch}', skipping`);
+                continue;
+              }
+            }
+          }
+        } catch (error) {
+          // No merge-base or error, try next candidate
+          logger.debug(`No valid merge-base with '${candidateBranch}': ${error}`);
+          continue;
+        }
+      }
+
+      // Strategy 3: Fallback to first available common branch in remote
+      for (const fallbackBranch of commonBranches) {
+        if (fallbackBranch === currentBranch) continue;
+
+        if (this.hasRemoteBranch(fallbackBranch)) {
+          logger.debug(`Fallback to common branch: ${fallbackBranch}`);
+          return fallbackBranch;
+        }
+      }
+
+      logger.debug('Could not determine base branch');
       return null;
     } catch (error) {
-      logger.error('Error determining base branch from log graph:', error);
+      logger.error('Error determining base branch:', error);
       return null;
     }
   }
@@ -1561,12 +1624,28 @@ export class GitService {
   }
 
   static instance(): GitService {
-    const pwd = process.cwd();
-    if (GitService.instances.get(pwd)) {
-      return GitService.instances.get(pwd)!;
+    // Use git repository root as the cache key instead of process.cwd()
+    // This ensures the same instance is used regardless of which subdirectory
+    // the command is run from
+    let repoRoot: string;
+    try {
+      const shell = Shell.instance();
+      repoRoot = shell.runProcess("git", "rev-parse", "--show-toplevel").trim();
+
+      // Normalize path separators for consistent caching
+      repoRoot = repoRoot.replace(/\\/g, '/');
+    } catch (error) {
+      // If not in a git repo, fall back to process.cwd()
+      repoRoot = process.cwd().replace(/\\/g, '/');
+      logger.warn('Not in a git repository, using current working directory');
+    }
+
+    if (GitService.instances.get(repoRoot)) {
+      return GitService.instances.get(repoRoot)!;
     }
     const gitService = new GitService();
-    GitService.instances.set(pwd, gitService);
+    GitService.instances.set(repoRoot, gitService);
+    logger.debug(`Created GitService instance for repository: ${repoRoot}`);
     return gitService;
   }
 }
