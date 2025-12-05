@@ -1,6 +1,6 @@
 {
   "name": "git-aiflow",
-  "version": "1.0.35",
+  "version": "1.0.37",
   "description": "🚀 An AI-powered workflow automation tool for effortless Git-based development, combining smart GitLab/GitHub merge & pull request creation with Conan package management.",
   "main": "dist/index.js",
   "bin": {
