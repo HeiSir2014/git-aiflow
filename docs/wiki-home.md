@@ -241,19 +241,31 @@ graph TD
 ### 多平台访问令牌配置
 
 ```yaml
-# 支持多个 Git 平台
-git_access_tokens:
-  # GitHub 令牌
-  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
-  
-  # GitLab 令牌  
-  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
-  
-  # Gitee 令牌
-  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
-  
+# 支持多个 Git 平台 (新格式，推荐)
+git_platforms:
+  # GitHub 平台
+  github.com:
+    access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+
+  # GitLab 平台 - 支持 merge_request 设置
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1          # 单个指派人用户名
+      assignees:                   # 多个指派人用户名
+        - username1
+        - username2
+      reviewers:                   # 审查者用户名
+        - reviewer1
+        - reviewer2
+
+  # Gitee 平台
+  gitee.com:
+    access_token: gitee_xxxxxxxxxxxxxxxxxxxxx
+
   # 企业内部 Git 服务器
-  git.company.com: custom_token_xxxxxxxxx
+  git.company.com:
+    access_token: custom_token_xxxxxxxxx
 ```
 
 ### OpenAI 配置选项
@@ -262,15 +274,19 @@ git_access_tokens:
 openai:
   # API 密钥
   key: sk-your-openai-api-key
-  
+
   # API 地址（支持代理和第三方服务）
   baseUrl: https://api.openai.com/v1
-  
+
   # 模型选择（推荐配置）
   model: gpt-4o-mini  # 性价比最佳
   # model: gpt-3.5-turbo  # 经济实惠
   # model: gpt-4  # 最高质量
-  
+
+  # 模型最大上下文token数（可选）- 默认8192
+  # 常见模型：gpt-3.5-turbo: 16384, gpt-4: 8192, gpt-4-turbo/4o: 128000
+  max_context_tokens: 16384
+
   # 💡 免费模型推荐：查看 docs/free-models.md
   # 🥇 首选：deepseek/deepseek-chat-v3.1:free (OpenRouter)
 ```
@@ -562,17 +578,21 @@ aiflow -co  # 短参数
 自动配置指派人和审查者：
 
 ```bash
-# 配置单个指派人
-aiflow -mrai 123
-
-# 配置多个指派人
-aiflow -mrais 123,456,789
-
-# 配置审查者
-aiflow -mrris 101,202,303
-
-# 组合使用
+# 使用用户ID配置（旧格式，CLI参数）
 aiflow -mrai 123 -mrris 456,789
+
+# 推荐：在配置文件中使用用户名配置（新格式）
+git_platforms:
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1
+      assignees:
+        - username1
+        - username2
+      reviewers:
+        - reviewer1
+        - reviewer2
 ```
 
 ### 多语言支持

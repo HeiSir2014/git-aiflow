@@ -7,7 +7,7 @@ import { GitService, GitFileStatus } from './services/git-service.js';
 import { OpenAiService } from './services/openai-service.js';
 import { GitPlatformServiceFactory, GitPlatformService, getGitAccessTokenForCurrentRepo, MergeRequestOptions } from './services/git-platform-service.js';
 import { WecomNotifier } from './services/wecom-notifier.js';
-import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig } from './config.js';
+import { configLoader, parseCliArgs, getConfigValue, getCliHelp, LoadedConfig, initConfig, getGitPlatformMergeRequestConfig } from './config.js';
 import { UpdateChecker } from './utils/update-checker.js';
 import { ColorUtil } from './utils/color-util.js';
 import path from 'path';
@@ -409,10 +409,9 @@ export abstract class BaseAiflowApp {
     const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
     const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
 
-    // Get merge request configuration
-    const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
-    const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
-    const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+    // Get platform-specific merge request configuration
+    const hostname = this.git.extractHostnameFromRemoteUrl();
+    const platformMrConfig = hostname ? getGitPlatformMergeRequestConfig(this.config, hostname) : undefined;
 
     const mergeRequestOptions: MergeRequestOptions = {
       squash: squashCommits,
@@ -420,17 +419,19 @@ export abstract class BaseAiflowApp {
       description: description
     };
 
-    // Add assignee configuration if specified
-    if (typeof assigneeId === 'number' && assigneeId > 0) {
-      mergeRequestOptions.assignee_id = assigneeId;
-    }
+    // Add assignee and reviewer configuration if specified (using usernames, will be resolved to IDs by platform service)
+    if (platformMrConfig) {
+      if (platformMrConfig.assignee) {
+        mergeRequestOptions.assignee_id = platformMrConfig.assignee as any; // Will be resolved to ID by platform service
+      }
 
-    if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
-      mergeRequestOptions.assignee_ids = assigneeIds;
-    }
+      if (platformMrConfig.assignees && platformMrConfig.assignees.length > 0) {
+        mergeRequestOptions.assignee_ids = platformMrConfig.assignees as any[]; // Will be resolved to IDs by platform service
+      }
 
-    if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
-      mergeRequestOptions.reviewer_ids = reviewerIds;
+      if (platformMrConfig.reviewers && platformMrConfig.reviewers.length > 0) {
+        mergeRequestOptions.reviewer_ids = platformMrConfig.reviewers as any[]; // Will be resolved to IDs by platform service
+      }
     }
 
     // Dynamic countdown before creating MR
@@ -562,10 +563,9 @@ ${'-'.repeat(50)}
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
 
-      // Get merge request configuration
-      const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
-      const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
-      const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+      // Get platform-specific merge request configuration
+      const hostname = this.git.extractHostnameFromRemoteUrl();
+      const platformMrConfig = hostname ? getGitPlatformMergeRequestConfig(this.config, hostname) : undefined;
 
       const mergeRequestOptions: MergeRequestOptions = {
         squash: squashCommits,
@@ -573,17 +573,19 @@ ${'-'.repeat(50)}
         description: description
       };
 
-      // Add assignee configuration if specified
-      if (typeof assigneeId === 'number' && assigneeId > 0) {
-        mergeRequestOptions.assignee_id = assigneeId;
-      }
+      // Add assignee and reviewer configuration if specified (using usernames, will be resolved to IDs by platform service)
+      if (platformMrConfig) {
+        if (platformMrConfig.assignee) {
+          mergeRequestOptions.assignee_id = platformMrConfig.assignee as any; // Will be resolved to ID by platform service
+        }
 
-      if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
-        mergeRequestOptions.assignee_ids = assigneeIds;
-      }
+        if (platformMrConfig.assignees && platformMrConfig.assignees.length > 0) {
+          mergeRequestOptions.assignee_ids = platformMrConfig.assignees as any[]; // Will be resolved to IDs by platform service
+        }
 
-      if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
-        mergeRequestOptions.reviewer_ids = reviewerIds;
+        if (platformMrConfig.reviewers && platformMrConfig.reviewers.length > 0) {
+          mergeRequestOptions.reviewer_ids = platformMrConfig.reviewers as any[]; // Will be resolved to IDs by platform service
+        }
       }
 
       // Dynamic countdown before creating MR

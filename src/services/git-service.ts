@@ -1470,100 +1470,106 @@ export class GitService {
   getBaseBranch(): string | null {
     try {
       const currentBranch = this.getCurrentBranch();
-      if (!currentBranch || currentBranch === 'HEAD') {
-        logger.debug('Not on a valid branch (detached HEAD or empty)');
-        return null;
-      }
+      if (!currentBranch || currentBranch === 'HEAD') return null;
 
       const repoRoot = this.getRepositoryRoot();
-      const remoteName = this.getRemoteName();
+      const remotes = this.shell
+        .runProcess("git", "remote")
+        .trim()
+        .split('\n')
+        .map(r => r.trim())
+        .filter(Boolean);
 
-      // Strategy 1: Check if branch has an upstream tracking branch
-      try {
-        const upstream = this.shell.runProcess(
-          "git", "-C", repoRoot, "rev-parse", "--abbrev-ref", `${currentBranch}@{upstream}`
-        ).trim();
+      const logGraph = this.shell.runProcess(
+        "git",
+        "-C", repoRoot,
+        "log",
+        "--graph",
+        "--oneline",
+        "--decorate",
+        "--all",
+        "--simplify-by-decoration"
+      );
+      const lines = logGraph.split('\n');
 
-        if (upstream && upstream !== currentBranch) {
-          // upstream format: "origin/main" or "upstream/develop"
-          // Extract branch name without remote prefix
-          const upstreamBranch = upstream.split('/').slice(1).join('/');
+      const normalizeRef = (r: string | undefined): string | null => {
+        if (!r) return null;
+        let ref = r.trim();
+        if (!ref) return null;
+        if (ref.startsWith('tag:')) return null;
+        const arrowMatch = ref.match(/->\s*(.+)$/);
+        if (arrowMatch) return arrowMatch[1].trim();
+        return ref;
+      };
 
-          // Verify the branch exists in remote
-          if (upstreamBranch && this.hasRemoteBranch(upstreamBranch)) {
-            logger.debug(`Base branch from upstream: ${upstreamBranch}`);
-            return upstreamBranch;
-          }
+      let foundCurrentBranch = false;
+      let currentBranchColumn = 0;
+      
+      for (const line of lines) {
+        const match = line.match(/\((.*?)\)/);
+        if (!match) continue;
+
+        const rawRefs = match[1].split(',').map(r => r.trim()).filter(Boolean);
+        const normalizedRefs = rawRefs.map(r => normalizeRef(r)).filter(Boolean) as string[];
+
+        // Check if this line mentions the current branch
+        const mentionsCurrent = normalizedRefs.some(r =>
+          r === currentBranch || r.endsWith(`/${currentBranch}`)
+        );
+
+        if (mentionsCurrent) {
+          foundCurrentBranch = true;
+          currentBranchColumn = line.indexOf('*');
+          continue; // Skip the line that contains current branch
         }
-      } catch (error) {
-        // No upstream configured, try other strategies
-        logger.debug('No upstream tracking branch configured');
-      }
 
-      // Strategy 2: Find merge-base with common branches
-      const commonBranches = ['main', 'master', 'develop', 'dev', 'trunk'];
+        // Only look for candidates after we've found the current branch
+        if (!foundCurrentBranch) continue;
 
-      for (const candidateBranch of commonBranches) {
-        // Skip if candidate is the current branch
-        if (candidateBranch === currentBranch) continue;
+        const candidateRaw = rawRefs.find(r => {
+          const nr = normalizeRef(r);
+          if (!nr) return false;
+          if (nr === currentBranch) return false;
+          if (nr === 'HEAD') return false;
+          if (r.startsWith('tag:')) return false;
+          if (r === 'origin/HEAD') return false;
+          return true;
+        });
 
-        // Check if candidate exists in remote
-        if (!this.hasRemoteBranch(candidateBranch)) {
-          logger.debug(`Candidate '${candidateBranch}' does not exist in remote, skipping`);
+        if (!candidateRaw) continue;
+
+        let candidate = normalizeRef(candidateRaw)!;
+        let candidateColumn = line.indexOf('*');
+        if (candidateColumn === -1) {
+          continue;
+        }
+        if (candidateColumn > currentBranchColumn) {
           continue;
         }
 
-        try {
-          // Check if there's a merge-base (common ancestor)
-          const mergeBase = this.shell.runProcess(
-            "git", "-C", repoRoot, "merge-base", "HEAD", `${remoteName}/${candidateBranch}`
-          ).trim();
-
-          if (mergeBase) {
-            // Check if current branch has commits beyond the merge-base
-            const currentCommit = this.shell.runProcess(
-              "git", "-C", repoRoot, "rev-parse", "HEAD"
-            ).trim();
-
-            // If current HEAD is different from merge-base, this candidate is a valid base
-            if (currentCommit !== mergeBase) {
-              // Verify that merge-base is an ancestor of the candidate branch
-              // This ensures we branched from this candidate
-              try {
-                this.shell.runProcess(
-                  "git", "-C", repoRoot, "merge-base", "--is-ancestor", mergeBase, `${remoteName}/${candidateBranch}`
-                );
-                // If command succeeded (exit code 0), merge-base is an ancestor
-                logger.debug(`Found base branch via merge-base: ${candidateBranch}`);
-                return candidateBranch;
-              } catch (ancestorError) {
-                // Not an ancestor, try next candidate
-                logger.debug(`Merge-base is not an ancestor of '${candidateBranch}', skipping`);
-                continue;
-              }
-            }
+        for (const remote of remotes) {
+          const prefix = `${remote}/`;
+          if (candidate.startsWith(prefix)) {
+            candidate = candidate.slice(prefix.length);
+            break;
           }
-        } catch (error) {
-          // No merge-base or error, try next candidate
-          logger.debug(`No valid merge-base with '${candidateBranch}': ${error}`);
+        }
+
+        if (candidate === currentBranch) continue;
+
+        // Check if candidate exists in remote using accurate remote branch detection
+        if (!this.hasRemoteBranch(candidate)) {
+          logger.debug(`Skipped candidate '${candidate}' because it does not exist in remote.`);
           continue;
         }
+
+        logger.debug(`Detected base branch: ${candidate}`);
+        return candidate;
       }
 
-      // Strategy 3: Fallback to first available common branch in remote
-      for (const fallbackBranch of commonBranches) {
-        if (fallbackBranch === currentBranch) continue;
-
-        if (this.hasRemoteBranch(fallbackBranch)) {
-          logger.debug(`Fallback to common branch: ${fallbackBranch}`);
-          return fallbackBranch;
-        }
-      }
-
-      logger.debug('Could not determine base branch');
       return null;
     } catch (error) {
-      logger.error('Error determining base branch:', error);
+      logger.error('Error determining base branch from log graph:', error);
       return null;
     }
   }

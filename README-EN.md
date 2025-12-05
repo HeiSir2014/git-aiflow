@@ -53,8 +53,8 @@ Specialized automation tool for Conan package version updates.
 
 ## 📋 Requirements
 
-- **Node.js**: >= 16.0.0
-- **npm**: >= 7.0.0
+- **Node.js**: >= 22.0.0
+- **npm**: >= 11.0.0
 - **Git**: Configured with access to remote repositories
 - **Git Hosting Platforms**: Personal Access Tokens for GitHub, GitLab, Gitee, etc.
 - **OpenAI**: Valid API Key (💡 Recommended: Check [Free Models Guide](docs/free-models-en.md) for free API options)
@@ -110,33 +110,49 @@ You can also manually create configuration files or use environment variables.
 openai:
   # OpenAI API key (required) - for generating commit messages and code analysis
   key: sk-your-actual-openai-api-key
-  
+
   # OpenAI API base URL (required) - API request endpoint
   baseUrl: https://api.openai.com/v1
-  
+
   # OpenAI model name (required) - specify AI model like gpt-3.5-turbo, gpt-4
   # 💡 Free Models Available: Check docs/free-models.md for free API configurations
   model: gpt-4o-mini
 
-# Git Access Tokens Configuration - support for multiple Git hosting platforms
-git_access_tokens:
-  # GitHub access token - format: ghp_xxxxxxxxxxxxxxxxxxxx
-  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
-  
-  # GitLab access token - format: glpat-xxxxxxxxxxxxxxxxxxxx  
-  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
-  
-  # Gitee access token - format: gitee_xxxxxxxxxxxxxxxxxxxx
-  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
-  
-  # You can add more Git hosting platform tokens
-  # format: hostname: access_token
+  # Model maximum context tokens (optional) - manually specify max context length, defaults to 8192
+  # Common model values: gpt-3.5-turbo: 16384, gpt-4: 8192, gpt-4-turbo/4o: 128000
+  max_context_tokens: 16384
+
+# Git Platform Configuration - support for multiple Git hosting platforms with per-platform settings (recommended)
+git_platforms:
+  # GitHub platform configuration
+  github.com:
+    access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+
+  # GitLab platform configuration - supports per-platform merge_request settings
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1          # Single assignee username
+      assignees:                   # Multiple assignee usernames
+        - username1
+        - username2
+      reviewers:                   # Reviewer usernames
+        - reviewer1
+        - reviewer2
+
+  # Gitee platform configuration
+  gitee.com:
+    access_token: gitee_xxxxxxxxxxxxxxxxxxxxx
+
+# Legacy format support (deprecated, use git_platforms instead)
+# git_access_tokens:
+#   github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
 
 # Conan Package Manager Configuration - for C++ package management and version updates
 conan:
   # Conan remote repository base URL (required for Conan operations) - Conan package repository API address
   # remoteBaseUrl: https://conan.example.com
-  
+
   # Conan remote repository name (optional) - default repository name, defaults to 'repo'
   remoteRepo: repo
 
@@ -144,7 +160,7 @@ conan:
 wecom:
   # Enable WeCom notifications (optional) - whether to enable notification feature, defaults to false
   enable: true
-  
+
   # WeCom bot webhook address (optional) - for sending notification messages
   webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
 
@@ -152,9 +168,19 @@ wecom:
 git:
   # Squash commits (optional) - whether to squash multiple commits when merging, defaults to true
   squashCommits: true
-  
+
   # Remove source branch (optional) - whether to delete source branch after merging, defaults to true
   removeSourceBranch: true
+
+  # AI generation language (optional) - language for AI-generated commit messages and MR descriptions, defaults to en
+  # Supported language codes: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
+  generation_lang: en
+
+# Legacy format support (deprecated, use git_platforms.<hostname>.merge_request instead)
+# merge_request:
+#   assignee_id: 0
+#   assignee_ids: []
+#   reviewer_ids: []
 ```
 
 ## 🚀 Usage
@@ -289,6 +315,7 @@ aiflow init --global
 | `-ok` | `--openai-key` | OpenAI API key | Required |
 | `-obu` | `--openai-base-url` | OpenAI API base URL | Required |
 | `-om` | `--openai-model` | OpenAI model name | Required |
+| `-omct` | `--openai-max-context-tokens` | Model max context tokens | Optional |
 | `-gat` | `--git-access-token` | Git access token (format: hostname=token) | Required |
 | `-crbu` | `--conan-remote-base-url` | Conan repository API URL | Required for Conan |
 | `-crr` | `--conan-remote-repo` | Conan repository name | Optional |
@@ -309,6 +336,7 @@ aiflow init --global
 | `OPENAI_KEY` | OpenAI API key | - |
 | `OPENAI_BASE_URL` | OpenAI API base URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | OpenAI model name | `gpt-3.5-turbo` |
+| `OPENAI_MAX_CONTEXT_TOKENS` | Model max context tokens | `8192` |
 | `GIT_ACCESS_TOKEN_<HOST>` | Git access token (e.g., GIT_ACCESS_TOKEN_GITHUB_COM) | - |
 | `CONAN_REMOTE_BASE_URL` | Conan remote server URL | - |
 | `CONAN_REMOTE_REPO` | Conan remote repository name | `repo` |
@@ -440,13 +468,21 @@ aiflow-conan zterm
 ### Case 5: Team Collaboration Configuration
 
 ```bash
-# Configure merge request assignee and reviewers
+# Configure merge request assignee and reviewers (using user IDs, legacy format)
 aiflow -mrai 123 -mrris 456,789
 
-# Or use configuration file
-merge_request:
-  assignee_id: 123
-  reviewer_ids: [456, 789]
+# Recommended: Configure using usernames in config file (new format)
+git_platforms:
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1
+      assignees:
+        - username1
+        - username2
+      reviewers:
+        - reviewer1
+        - reviewer2
 ```
 
 ## 🎯 Best Practices

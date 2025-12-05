@@ -23,6 +23,18 @@ interface GitlabMergeRequest {
 }
 
 /**
+ * GitLab API user response
+ */
+interface GitlabUser {
+  id: number;
+  username: string;
+  name: string;
+  state: string;
+  avatar_url: string;
+  web_url: string;
+}
+
+/**
  * GitLab platform service implementation
  */
 export class GitlabPlatformService extends GitPlatformService {
@@ -64,6 +76,66 @@ export class GitlabPlatformService extends GitPlatformService {
     }
   }
 
+  /**
+   * Get user ID by username
+   * @param username GitLab username
+   * @returns User ID, or undefined if not found
+   */
+  async getUserIdByUsername(username: string): Promise<number | undefined> {
+    const apiUrl = `${this.baseUrl}/api/v4/users?username=${encodeURIComponent(username)}`;
+
+    logger.info(`🔍 Fetching GitLab user ID for username: ${username}`);
+
+    try {
+      const users = await this.http.requestJson<GitlabUser[]>(
+        apiUrl,
+        'GET',
+        {
+          'PRIVATE-TOKEN': this.token,
+          'Content-Type': 'application/json'
+        }
+      );
+
+      if (users && users.length > 0) {
+        const user = users[0];
+        logger.info(`✅ Found GitLab user: ${user.name} (@${user.username}, ID: ${user.id})`);
+        return user.id;
+      } else {
+        logger.warn(`⚠️  GitLab user not found: ${username}`);
+        return undefined;
+      }
+    } catch (error) {
+      logger.error(`❌ Failed to get GitLab user ID for username "${username}": ${error}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve user identifier (username or ID) to user ID
+   * @param userIdentifier Username (string) or user ID (number)
+   * @returns User ID, or undefined if not found or invalid
+   */
+  private async resolveUserId(userIdentifier: number | string): Promise<number | undefined> {
+    // If it's already a number (user ID), return it directly
+    if (typeof userIdentifier === 'number') {
+      return userIdentifier > 0 ? userIdentifier : undefined;
+    }
+
+    // If it's a string, try to parse as number first
+    if (typeof userIdentifier === 'string') {
+      const parsedId = parseInt(userIdentifier, 10);
+      if (!isNaN(parsedId) && parsedId > 0) {
+        // String represents a valid numeric ID
+        return parsedId;
+      }
+
+      // String is a username, look up the user ID
+      return await this.getUserIdByUsername(userIdentifier);
+    }
+
+    return undefined;
+  }
+
   protected async createMergeRequestInternal(
     sourceBranch: string,
     targetBranch: string,
@@ -83,6 +155,43 @@ export class GitlabPlatformService extends GitPlatformService {
       description = ''
     } = options;
 
+    // Resolve assignee_id if it's a username
+    let resolvedAssigneeId: number | undefined;
+    if (assignee_id !== undefined) {
+      resolvedAssigneeId = await this.resolveUserId(assignee_id);
+      if (resolvedAssigneeId === undefined && assignee_id !== 0) {
+        logger.warn(`⚠️  Could not resolve assignee: ${assignee_id}`);
+      }
+    }
+
+    // Resolve assignee_ids if they contain usernames
+    let resolvedAssigneeIds: number[] = [];
+    if (assignee_ids && assignee_ids.length > 0) {
+      const resolvedIds = await Promise.all(
+        assignee_ids.map(id => this.resolveUserId(id))
+      );
+      resolvedAssigneeIds = resolvedIds.filter((id): id is number => id !== undefined && id > 0);
+
+      const failedCount = assignee_ids.length - resolvedAssigneeIds.length;
+      if (failedCount > 0) {
+        logger.warn(`⚠️  Could not resolve ${failedCount} assignee(s)`);
+      }
+    }
+
+    // Resolve reviewer_ids if they contain usernames
+    let resolvedReviewerIds: number[] = [];
+    if (reviewer_ids && reviewer_ids.length > 0) {
+      const resolvedIds = await Promise.all(
+        reviewer_ids.map(id => this.resolveUserId(id))
+      );
+      resolvedReviewerIds = resolvedIds.filter((id): id is number => id !== undefined && id > 0);
+
+      const failedCount = reviewer_ids.length - resolvedReviewerIds.length;
+      if (failedCount > 0) {
+        logger.warn(`⚠️  Could not resolve ${failedCount} reviewer(s)`);
+      }
+    }
+
     // Build request body with all parameters
     const bodyParams = [
       `source_branch=${encodeURIComponent(sourceBranch)}`,
@@ -92,10 +201,10 @@ export class GitlabPlatformService extends GitPlatformService {
       `remove_source_branch=${removeSourceBranch}` // Delete source branch after merge
     ];
 
-    // Add assignee_id if specified
-    if (assignee_id !== undefined && assignee_id > 0) {
-      bodyParams.push(`assignee_id=${assignee_id}`);
-      logger.info(`📋 Setting assignee ID: ${assignee_id}`);
+    // Add assignee_id if specified (use resolved ID)
+    if (resolvedAssigneeId !== undefined && resolvedAssigneeId > 0) {
+      bodyParams.push(`assignee_id=${resolvedAssigneeId}`);
+      logger.info(`📋 Setting assignee ID: ${resolvedAssigneeId}`);
     }
 
     // Add description if specified
@@ -104,28 +213,20 @@ export class GitlabPlatformService extends GitPlatformService {
       logger.info(`📋 Setting description: ${description}`);
     }
 
-    // Add assignee_ids if specified and not empty
-    if (assignee_ids && assignee_ids.length > 0) {
-      // Filter out invalid IDs and add each one separately
-      const validAssigneeIds = assignee_ids.filter(id => id > 0);
-      if (validAssigneeIds.length > 0) {
-        validAssigneeIds.forEach(id => {
-          bodyParams.push(`assignee_ids[]=${id}`);
-        });
-        logger.info(`📋 Setting assignee IDs: ${validAssigneeIds.join(', ')}`);
-      }
+    // Add assignee_ids if specified and not empty (use resolved IDs)
+    if (resolvedAssigneeIds.length > 0) {
+      resolvedAssigneeIds.forEach(id => {
+        bodyParams.push(`assignee_ids[]=${id}`);
+      });
+      logger.info(`📋 Setting assignee IDs: ${resolvedAssigneeIds.join(', ')}`);
     }
 
-    // Add reviewer_ids if specified and not empty
-    if (reviewer_ids && reviewer_ids.length > 0) {
-      // Filter out invalid IDs and add each one separately
-      const validReviewerIds = reviewer_ids.filter(id => id > 0);
-      if (validReviewerIds.length > 0) {
-        validReviewerIds.forEach(id => {
-          bodyParams.push(`reviewer_ids[]=${id}`);
-        });
-        logger.info(`📋 Setting reviewer IDs: ${validReviewerIds.join(', ')}`);
-      }
+    // Add reviewer_ids if specified and not empty (use resolved IDs)
+    if (resolvedReviewerIds.length > 0) {
+      resolvedReviewerIds.forEach(id => {
+        bodyParams.push(`reviewer_ids[]=${id}`);
+      });
+      logger.info(`📋 Setting reviewer IDs: ${resolvedReviewerIds.join(', ')}`);
     }
 
     logger.info(`📋 Creating GitLab merge request for project ${project.id}`);

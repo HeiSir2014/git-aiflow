@@ -113,33 +113,49 @@ aiflow init --global
 openai:
   # OpenAI API 密钥 (必需) - 用于生成提交信息和代码分析
   key: sk-your-actual-openai-api-key
-  
+
   # OpenAI API 基础URL (必需) - API请求的端点地址
   baseUrl: https://api.openai.com/v1
-  
+
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   # 💡 免费模型推荐：查看 docs/free-models.md 获取免费API配置
   model: gpt-3.5-turbo
 
-# Git 访问令牌配置 - 支持多个Git托管平台
-git_access_tokens:
-  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
-  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
-  
-  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
-  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
-  
-  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
-  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
-  
-  # 您可以添加更多Git托管平台的令牌
-  # 格式: 主机名: 访问令牌
+  # 模型最大上下文token数 (可选) - 手动指定模型的最大上下文长度，默认为8192
+  # 常见模型推荐值：gpt-3.5-turbo: 16384, gpt-4: 8192, gpt-4-turbo/4o: 128000
+  max_context_tokens: 16384
+
+# Git 平台配置 - 支持多个Git托管平台及平台级设置 (推荐)
+git_platforms:
+  # GitHub 平台配置
+  github.com:
+    access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+
+  # GitLab 平台配置 - 支持平台级 merge_request 设置
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1          # 单个指派人用户名
+      assignees:                   # 多个指派人用户名列表
+        - username1
+        - username2
+      reviewers:                   # 审查者用户名列表
+        - reviewer1
+        - reviewer2
+
+  # Gitee 平台配置
+  gitee.com:
+    access_token: gitee_xxxxxxxxxxxxxxxxxxxxx
+
+# 旧格式兼容性支持 (已弃用，建议使用 git_platforms)
+# git_access_tokens:
+#   github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
   # Conan 远程仓库基础URL (Conan操作时必需) - Conan包仓库的API地址
   # remoteBaseUrl: https://conan.example.com
-  
+
   # Conan 远程仓库名称 (可选) - 默认使用的仓库名称，默认为'repo'
   remoteRepo: repo
 
@@ -147,7 +163,7 @@ conan:
 wecom:
   # 启用企业微信通知 (可选) - 是否开启通知功能，默认为false
   enable: true
-  
+
   # 企业微信机器人Webhook地址 (可选) - 用于发送通知消息的机器人地址
   webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-webhook-key
 
@@ -155,24 +171,19 @@ wecom:
 git:
   # 压缩提交 (可选) - 合并时是否将多个提交压缩为一个，默认为true
   squashCommits: true
-  
+
   # 删除源分支 (可选) - 合并后是否删除源分支，默认为true
   removeSourceBranch: true
-  
+
   # AI生成语言 (可选) - AI生成commit message和MR描述的语言，默认为en
   # 支持的语言代码: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
   generation_lang: en
 
-# 合并请求指派配置 - 配置指派人和审查者
-merge_request:
-  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
-  assignee_id: 0
-  
-  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
-  assignee_ids: []
-  
-  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
-  reviewer_ids: []
+# 旧格式兼容性支持 (已弃用，建议使用 git_platforms.<hostname>.merge_request)
+# merge_request:
+#   assignee_id: 0
+#   assignee_ids: []
+#   reviewer_ids: []
 ```
 
 ## 🚀 使用方法
@@ -307,6 +318,7 @@ aiflow init --global
 | `-ok` | `--openai-key` | OpenAI API 密钥 | 必需 |
 | `-obu` | `--openai-base-url` | OpenAI API 基础 URL | 必需 |
 | `-om` | `--openai-model` | OpenAI 模型名称 | 必需 |
+| `-omct` | `--openai-max-context-tokens` | 模型最大上下文token数 | 可选 |
 | `-gat` | `--git-access-token` | Git 访问令牌 (格式: 主机名=令牌) | 必需 |
 | `-crbu` | `--conan-remote-base-url` | Conan 仓库 API URL | Conan操作必需 |
 | `-crr` | `--conan-remote-repo` | Conan 仓库名称 | 可选 |
@@ -328,6 +340,7 @@ aiflow init --global
 | `OPENAI_KEY` | OpenAI API 密钥 | - |
 | `OPENAI_BASE_URL` | OpenAI API 基础 URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | OpenAI 模型名称 | `gpt-3.5-turbo` |
+| `OPENAI_MAX_CONTEXT_TOKENS` | 模型最大上下文token数 | `8192` |
 | `GIT_ACCESS_TOKEN_<HOST>` | Git 访问令牌 (如: GIT_ACCESS_TOKEN_GITHUB_COM) | - |
 | `CONAN_REMOTE_BASE_URL` | Conan 远程服务器 URL | - |
 | `CONAN_REMOTE_REPO` | Conan 远程仓库名 | `repo` |
@@ -459,13 +472,21 @@ aiflow-conan zterm
 ### 案例 5：团队协作配置
 
 ```bash
-# 配置合并请求指派和审查者
+# 配置合并请求指派和审查者 (使用用户ID，旧格式)
 aiflow -mrai 123 -mrris 456,789
 
-# 或使用配置文件
-merge_request:
-  assignee_id: 123
-  reviewer_ids: [456, 789]
+# 推荐：在配置文件中使用用户名配置 (新格式)
+git_platforms:
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1
+      assignees:
+        - username1
+        - username2
+      reviewers:
+        - reviewer1
+        - reviewer2
 ```
 
 ## 🎯 最佳实践

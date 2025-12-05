@@ -11,7 +11,7 @@ openai:
 
   # OpenAI 模型名称 (必需) - 指定使用的AI模型，如 gpt-3.5-turbo, gpt-4
   model: gpt-3.5-turbo
-
+  
   # 模型最大上下文token数 (可选) - 手动指定模型的最大上下文长度，默认为8192
   # 常见模型推荐值：
   #   gpt-3.5-turbo: 4096 或 16384 (取决于具体版本)
@@ -24,19 +24,41 @@ openai:
   # 💡 提示：查看您使用的模型文档以确定正确的上下文长度
   max_context_tokens: 16384
 
-# Git 访问令牌配置 - 支持多个Git托管平台
-git_access_tokens:
-  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
-  github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
-  
-  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
-  gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
-  
-  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
-  gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx
-  
-  # 您可以添加更多Git托管平台的令牌
-  # 格式: 主机名: 访问令牌
+# Git 平台配置 - 支持多个Git托管平台及平台级设置
+git_platforms:
+  # GitHub 平台配置
+  github.com:
+    access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+
+  # GitLab 平台配置 - 支持平台级 merge_request 设置
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1          # 单个指派人用户名
+      assignees:                   # 多个指派人用户名列表
+        - username1
+        - username2
+      reviewers:                   # 审查者用户名列表
+        - reviewer1
+        - reviewer2
+
+  # Gitee 平台配置
+  gitee.com:
+    access_token: gitee_xxxxxxxxxxxxxxxxxxxxx
+
+  # 您可以添加更多Git托管平台的配置
+  # 格式:
+  # hostname:
+  #   access_token: your-token
+  #   merge_request:  # 可选，仅 GitLab 平台支持
+  #     assignee: username
+  #     assignees: [username1, username2]
+  #     reviewers: [reviewer1, reviewer2]
+
+# 旧格式兼容性支持 (已弃用，建议使用 git_platforms)
+# git_access_tokens:
+#   github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
+#   gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
 
 # Conan 包管理器配置 - 用于C++包管理和版本更新
 conan:
@@ -66,13 +88,11 @@ git:
   # 支持的语言代码: en, zh-CN, zh-TW, ja, ko, fr, de, es, ru, pt, it
   generation_lang: en
 
-# 合并请求指派配置 - 配置指派人和审查者
-merge_request:
-  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
-  assignee_id: 0
-  
-  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
-  assignee_ids: []
-  
-  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
-  reviewer_ids: []
+# 旧格式兼容性支持 (已弃用，建议使用 git_platforms.<hostname>.merge_request)
+# merge_request:
+#   # 注意：此配置格式已弃用
+#   # 新格式: 在 git_platforms 下为每个 GitLab 平台单独配置 merge_request
+#   # 使用用户名而非用户ID，系统会自动解析
+#   assignee_id: 0
+#   assignee_ids: []
+#   reviewer_ids: []

@@ -25,6 +25,97 @@ function getUserDataDir(): string {
 }
 
 /**
+ * Normalize config types based on AiflowConfig interface definition.
+ * Ensures string fields remain strings (even if they look like numbers)
+ * and number fields are properly converted to numbers.
+ */
+function normalizeConfigTypes(config: any): void {
+  if (!config || typeof config !== 'object') return;
+
+  // OpenAI config - key, baseUrl, model are strings; max_context_tokens is number
+  if (config.openai) {
+    if (config.openai.key !== undefined) config.openai.key = String(config.openai.key);
+    if (config.openai.baseUrl !== undefined) config.openai.baseUrl = String(config.openai.baseUrl);
+    if (config.openai.model !== undefined) config.openai.model = String(config.openai.model);
+    if (config.openai.max_context_tokens !== undefined) {
+      config.openai.max_context_tokens = toNumber(config.openai.max_context_tokens);
+    }
+    // reasoning can be boolean or object, leave as-is
+  }
+
+  // git_access_tokens - all values are strings
+  if (config.git_access_tokens) {
+    for (const key of Object.keys(config.git_access_tokens)) {
+      config.git_access_tokens[key] = String(config.git_access_tokens[key]);
+    }
+  }
+
+  // git_platforms - access_token and usernames are strings
+  if (config.git_platforms) {
+    for (const hostname of Object.keys(config.git_platforms)) {
+      const platform = config.git_platforms[hostname];
+      if (platform.access_token !== undefined) {
+        platform.access_token = String(platform.access_token);
+      }
+      if (platform.merge_request) {
+        if (platform.merge_request.assignee !== undefined) {
+          platform.merge_request.assignee = String(platform.merge_request.assignee);
+        }
+        if (Array.isArray(platform.merge_request.assignees)) {
+          platform.merge_request.assignees = platform.merge_request.assignees.map((v: any) => String(v));
+        }
+        if (Array.isArray(platform.merge_request.reviewers)) {
+          platform.merge_request.reviewers = platform.merge_request.reviewers.map((v: any) => String(v));
+        }
+      }
+    }
+  }
+
+  // conan config - all strings
+  if (config.conan) {
+    if (config.conan.remoteBaseUrl !== undefined) config.conan.remoteBaseUrl = String(config.conan.remoteBaseUrl);
+    if (config.conan.remoteRepo !== undefined) config.conan.remoteRepo = String(config.conan.remoteRepo);
+  }
+
+  // wecom config - webhook is string, enable is boolean
+  if (config.wecom) {
+    if (config.wecom.webhook !== undefined) config.wecom.webhook = String(config.wecom.webhook);
+    // enable is boolean, leave as-is (yaml handles booleans correctly)
+  }
+
+  // git config - all strings except booleans
+  if (config.git) {
+    if (config.git.generation_lang !== undefined) config.git.generation_lang = String(config.git.generation_lang);
+    // squashCommits and removeSourceBranch are booleans, leave as-is
+  }
+
+  // merge_request config (legacy) - IDs are numbers
+  if (config.merge_request) {
+    if (config.merge_request.assignee_id !== undefined) {
+      config.merge_request.assignee_id = toNumber(config.merge_request.assignee_id);
+    }
+    if (Array.isArray(config.merge_request.assignee_ids)) {
+      config.merge_request.assignee_ids = config.merge_request.assignee_ids.map((v: any) => toNumber(v));
+    }
+    if (Array.isArray(config.merge_request.reviewer_ids)) {
+      config.merge_request.reviewer_ids = config.merge_request.reviewer_ids.map((v: any) => toNumber(v));
+    }
+  }
+}
+
+/**
+ * Safely convert a value to number, returning 0 for invalid values
+ */
+function toNumber(value: any): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const num = parseInt(value, 10);
+    return isNaN(num) ? 0 : num;
+  }
+  return 0;
+}
+
+/**
  * ESM/CommonJS compatibility helper for getting current directory.
  * @return {string} The current directory path
  */
@@ -81,9 +172,21 @@ export interface AiflowConfig {
     };
   };
 
-  // Git Access Tokens for multiple platforms
+  // Git Access Tokens for multiple platforms (legacy, kept for backward compatibility)
   git_access_tokens?: {
     [hostname: string]: string;
+  };
+
+  // Git Platform Configuration - supports multiple Git hosting platforms with per-platform settings
+  git_platforms?: {
+    [hostname: string]: {
+      access_token: string;
+      merge_request?: {
+        assignee?: string;      // Single assignee username
+        assignees?: string[];   // Multiple assignee usernames
+        reviewers?: string[];   // Reviewer usernames
+      };
+    };
   };
 
   // Conan Configuration
@@ -105,11 +208,11 @@ export interface AiflowConfig {
     generation_lang?: string;
   };
 
-  // Merge Request Configuration
+  // Merge Request Configuration (legacy, kept for backward compatibility)
   merge_request?: {
-    assignee_id?: number;
-    assignee_ids?: number[];
-    reviewer_ids?: number[];
+    assignee_id?: number | string;
+    assignee_ids?: (number | string)[];
+    reviewer_ids?: (number | string)[];
   };
 }
 
@@ -298,6 +401,7 @@ export class ConfigLoader {
       const yamlConfig = yaml.load(yamlContent) as AiflowConfig;
 
       if (yamlConfig && typeof yamlConfig === 'object') {
+        normalizeConfigTypes(yamlConfig);
         this.mergeConfigRecursively(config, yamlConfig, source, configPath);
       }
     } catch (error) {
@@ -599,6 +703,13 @@ export function getGitAccessToken(
   config: LoadedConfig,
   hostname: string
 ): string | undefined {
+  // Try new git_platforms format first
+  const platforms = getConfigValue(config, 'git_platforms', {} as Record<string, any>);
+  if (platforms?.[hostname]?.access_token) {
+    return platforms[hostname].access_token;
+  }
+
+  // Fall back to legacy git_access_tokens format
   const tokens = getConfigValue(config, 'git_access_tokens', {} as Record<string, string>);
   return tokens?.[hostname];
 }
@@ -611,7 +722,41 @@ export function getGitAccessToken(
 export function getAllGitAccessTokens(
   config: LoadedConfig
 ): Record<string, string> {
-  return getConfigValue(config, 'git_access_tokens', {} as Record<string, string>) || {};
+  const result: Record<string, string> = {};
+
+  // Get tokens from new git_platforms format
+  const platforms = getConfigValue(config, 'git_platforms', {} as Record<string, any>);
+  if (platforms) {
+    for (const [hostname, platformConfig] of Object.entries(platforms)) {
+      if (platformConfig?.access_token) {
+        result[hostname] = platformConfig.access_token;
+      }
+    }
+  }
+
+  // Merge with legacy git_access_tokens format (legacy takes lower priority)
+  const legacyTokens = getConfigValue(config, 'git_access_tokens', {} as Record<string, string>) || {};
+  for (const [hostname, token] of Object.entries(legacyTokens)) {
+    if (!result[hostname]) {
+      result[hostname] = token;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get Git platform merge request configuration for a specific hostname
+ * @param config Loaded configuration
+ * @param hostname Git hostname (e.g., 'gitlab.example.com')
+ * @returns Merge request configuration for the platform or undefined if not found
+ */
+export function getGitPlatformMergeRequestConfig(
+  config: LoadedConfig,
+  hostname: string
+): { assignee?: string; assignees?: string[]; reviewers?: string[] } | undefined {
+  const platforms = getConfigValue(config, 'git_platforms', {} as Record<string, any>);
+  return platforms?.[hostname]?.merge_request;
 }
 
 /**
@@ -909,11 +1054,10 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
         isIncrementalMode = true;
         console.log('\n📋 请选择要配置的模块 (可多选，用逗号分隔):');
         console.log('  1. openai     - OpenAI API 配置');
-        console.log('  2. git-tokens - Git 访问令牌配置');
+        console.log('  2. git-tokens - Git 平台配置 (含访问令牌和MR设置)');
         console.log('  3. conan      - Conan 配置');
         console.log('  4. wecom      - 企业微信配置');
         console.log('  5. git        - Git 行为配置');
-        console.log('  6. mr         - 合并请求配置');
         console.log('  all           - 配置所有模块\n');
 
         const selectedModules = await question('选择模块 (例如: 1,5 或 openai,git): ');
@@ -922,12 +1066,11 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
           configModules = modules.flatMap(module => {
             switch (module) {
               case '1': case 'openai': return ['openai'];
-              case '2': case 'git-tokens': return ['git-tokens'];
+              case '2': case 'git-tokens': case 'git-platforms': return ['git-tokens'];
               case '3': case 'conan': return ['conan'];
               case '4': case 'wecom': return ['wecom'];
               case '5': case 'git': return ['git'];
-              case '6': case 'mr': return ['mr'];
-              case 'all': return ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+              case 'all': return ['openai', 'git-tokens', 'conan', 'wecom', 'git'];
               default: return [];
             }
           }).filter((v, i, arr) => arr.indexOf(v) === i); // Remove duplicates
@@ -942,20 +1085,21 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
         console.log(`\n✅ 将配置以下模块: ${configModules.join(', ')}\n`);
       } else {
         // Full configuration mode
-        configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+        configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git'];
       }
     } else {
       // Full configuration mode for new configs
-      configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
+      configModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git'];
     }
     // Load existing configuration if available
     let configData: any = {
       openai: {},
-      git_access_tokens: {},
+      git_platforms: {},
+      git_access_tokens: {},  // Legacy, for backward compatibility
       conan: {},
       wecom: {},
       git: {},
-      merge_request: {}
+      merge_request: {}  // Legacy, for backward compatibility
     };
 
     // For local config, first try to load global config as base
@@ -964,8 +1108,10 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
         const globalConfigContent = fs.readFileSync(globalConfigPath, 'utf8');
         const globalConfig = yaml.load(globalConfigContent) as any;
         if (globalConfig) {
+          normalizeConfigTypes(globalConfig);
           configData = {
             openai: globalConfig.openai || {},
+            git_platforms: globalConfig.git_platforms || {},
             git_access_tokens: globalConfig.git_access_tokens || {},
             conan: globalConfig.conan || {},
             wecom: globalConfig.wecom || {},
@@ -985,9 +1131,11 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
         const existingConfigContent = fs.readFileSync(configPath, 'utf8');
         const existingConfig = yaml.load(existingConfigContent) as any;
         if (existingConfig) {
+          normalizeConfigTypes(existingConfig);
           // Merge existing config over the base config
           configData = {
             openai: { ...configData.openai, ...(existingConfig.openai || {}) },
+            git_platforms: { ...configData.git_platforms, ...(existingConfig.git_platforms || {}) },
             git_access_tokens: { ...configData.git_access_tokens, ...(existingConfig.git_access_tokens || {}) },
             conan: { ...configData.conan, ...(existingConfig.conan || {}) },
             wecom: { ...configData.wecom, ...(existingConfig.wecom || {}) },
@@ -1021,45 +1169,138 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       configData.openai.reasoning = openaiReasoning.trim() === '' ? currentReasoning : openaiReasoning.trim() !== 'false';
     }
 
-    // Git access tokens configuration
+    // Git platforms configuration (new format)
     if (configModules.includes('git-tokens')) {
-      console.log('\n🔑 Git 访问令牌配置:');
-      // Keep existing tokens, don't reset
-      if (!configData.git_access_tokens) {
-        configData.git_access_tokens = {};
+      console.log('\n🔑 Git 平台配置:');
+
+      // Initialize git_platforms if not exists
+      if (!configData.git_platforms) {
+        configData.git_platforms = {};
       }
 
-      // Show existing tokens
-      const existingHosts = Object.keys(configData.git_access_tokens);
+      // Migrate legacy git_access_tokens to git_platforms if exists
+      if (configData.git_access_tokens && Object.keys(configData.git_access_tokens).length > 0) {
+        console.log('  检测到旧格式的 git_access_tokens 配置');
+        for (const [host, token] of Object.entries(configData.git_access_tokens)) {
+          if (!configData.git_platforms[host]) {
+            configData.git_platforms[host] = { access_token: token };
+            console.log(`    ✅ 已迁移 ${host} 的配置到新格式`);
+          }
+        }
+        console.log('');
+      }
+
+      // Show existing platforms
+      const existingHosts = Object.keys(configData.git_platforms);
       if (existingHosts.length > 0) {
         console.log('  现有配置的Git平台:');
         existingHosts.forEach(host => {
-          console.log(`    • ${host}: 已设置`);
+          const hasMRConfig = configData.git_platforms[host]?.merge_request;
+          console.log(`    • ${host}: 已设置${hasMRConfig ? ' (含MR配置)' : ''}`);
         });
         console.log('');
       }
 
-      console.log('  您可以添加新的Git平台访问令牌或修改现有配置，直接回车跳过');
-      // Git platform tokens with loop for multiple platforms
+      console.log('  您可以添加新的Git平台或修改现有配置，直接回车跳过');
+
+      // Git platform configuration loop
       while (true) {
         const gitHost = await question('  Git 平台主机名 (如: github.com, gitlab.example.com, gitee.com，留空结束): ');
         if (!gitHost.trim()) break;
 
-        const currentToken = configData.git_access_tokens[gitHost.trim()];
-        const tokenPrompt = currentToken
-          ? `  ${gitHost.trim()} 访问令牌 [已设置]: `
-          : `  ${gitHost.trim()} 访问令牌: `;
+        const hostname = gitHost.trim();
+        const currentPlatform = configData.git_platforms[hostname];
+
+        // Configure access token
+        const tokenPrompt = currentPlatform?.access_token
+          ? `  ${hostname} 访问令牌 [已设置]: `
+          : `  ${hostname} 访问令牌: `;
 
         const gitToken = await question(tokenPrompt);
-        if (gitToken.trim()) {
-          configData.git_access_tokens[gitHost.trim()] = gitToken.trim();
-          console.log(`    ✅ 已${currentToken ? '更新' : '添加'} ${gitHost.trim()} 的访问令牌`);
+
+        // Initialize or update platform config
+        if (!configData.git_platforms[hostname]) {
+          configData.git_platforms[hostname] = {};
         }
 
-        const continueAdding = await question('  是否继续添加其他 Git 平台令牌？(y/N): ');
+        if (gitToken.trim()) {
+          configData.git_platforms[hostname].access_token = gitToken.trim();
+          console.log(`    ✅ 已${currentPlatform ? '更新' : '添加'} ${hostname} 的访问令牌`);
+        } else if (!configData.git_platforms[hostname].access_token) {
+          console.log(`    ⚠️  未设置访问令牌，跳过 ${hostname}`);
+          delete configData.git_platforms[hostname];
+          continue;
+        }
+
+        // Detect platform type and ask for merge request config if GitLab
+        const isGitLab = hostname.includes('gitlab');
+
+        if (isGitLab) {
+          console.log(`\n  检测到 GitLab 平台: ${hostname}`);
+          const configureMR = await question('  是否配置 Merge Request 默认设置？(y/N): ');
+
+          if (configureMR.toLowerCase() === 'y' || configureMR.toLowerCase() === 'yes') {
+            // Initialize merge_request config
+            if (!configData.git_platforms[hostname].merge_request) {
+              configData.git_platforms[hostname].merge_request = {};
+            }
+
+            const mrConfig = configData.git_platforms[hostname].merge_request;
+
+            // Configure assignee (single)
+            const currentAssignee = mrConfig.assignee || '';
+            const assignee = await question(`    单个指派人用户名 (可选)${currentAssignee ? ` [${currentAssignee}]` : ''}: `);
+            if (assignee.trim()) {
+              mrConfig.assignee = assignee.trim();
+            } else if (currentAssignee) {
+              // Keep current value if just pressed enter
+            } else {
+              delete mrConfig.assignee;
+            }
+
+            // Configure assignees (multiple)
+            const currentAssignees = mrConfig.assignees || [];
+            const assigneesStr = currentAssignees.length > 0 ? currentAssignees.join(', ') : '';
+            const assignees = await question(`    多个指派人用户名 (可选，逗号分隔)${assigneesStr ? ` [${assigneesStr}]` : ''}: `);
+            if (assignees.trim()) {
+              mrConfig.assignees = assignees.split(',').map(s => s.trim()).filter(s => s);
+            } else if (assigneesStr) {
+              // Keep current value if just pressed enter
+            } else {
+              delete mrConfig.assignees;
+            }
+
+            // Configure reviewers
+            const currentReviewers = mrConfig.reviewers || [];
+            const reviewersStr = currentReviewers.length > 0 ? currentReviewers.join(', ') : '';
+            const reviewers = await question(`    审查者用户名 (可选，逗号分隔)${reviewersStr ? ` [${reviewersStr}]` : ''}: `);
+            if (reviewers.trim()) {
+              mrConfig.reviewers = reviewers.split(',').map(s => s.trim()).filter(s => s);
+            } else if (reviewersStr) {
+              // Keep current value if just pressed enter
+            } else {
+              delete mrConfig.reviewers;
+            }
+
+            // Remove merge_request if empty
+            if (Object.keys(mrConfig).length === 0) {
+              delete configData.git_platforms[hostname].merge_request;
+            } else {
+              console.log(`    ✅ 已配置 ${hostname} 的 Merge Request 设置`);
+            }
+          }
+        }
+
+        console.log('');
+        const continueAdding = await question('  是否继续添加/修改其他 Git 平台？(y/N): ');
         if (continueAdding.toLowerCase() !== 'y' && continueAdding.toLowerCase() !== 'yes') {
           break;
         }
+      }
+
+      // Clear legacy git_access_tokens after migration
+      if (Object.keys(configData.git_platforms).length > 0) {
+        delete configData.git_access_tokens;
       }
     }
 
@@ -1111,38 +1352,8 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
       configData.git.generation_lang = generationLang.trim() || currentLang;
     }
 
-    // Merge Request configuration
-    if (configModules.includes('mr')) {
-      console.log('\n🔀 合并请求指派配置:');
-      const currentAssigneeId = configData.merge_request.assignee_id || 0;
-      const assigneeId = await question(`  单个指派人用户ID (可选，0表示取消指派) [${currentAssigneeId}]: `);
-      const parsedAssigneeId = parseInt(assigneeId.trim(), 10);
-      configData.merge_request.assignee_id = isNaN(parsedAssigneeId) ? currentAssigneeId : parsedAssigneeId;
-
-      const currentAssigneeIds = configData.merge_request.assignee_ids || [];
-      const assigneeIdsStr = currentAssigneeIds.length > 0 ? currentAssigneeIds.join(',') : '';
-      const assigneeIds = await question(`  指派人用户ID列表 (可选，逗号分隔，如: 1,2,3)${assigneeIdsStr ? ` [${assigneeIdsStr}]` : ''}: `);
-      if (assigneeIds.trim()) {
-        configData.merge_request.assignee_ids = assigneeIds.split(',').map(id => {
-          const num = parseInt(id.trim(), 10);
-          return isNaN(num) ? 0 : num;
-        }).filter(id => id >= 0);
-      } else if (!assigneeIdsStr) {
-        configData.merge_request.assignee_ids = [];
-      }
-
-      const currentReviewerIds = configData.merge_request.reviewer_ids || [];
-      const reviewerIdsStr = currentReviewerIds.length > 0 ? currentReviewerIds.join(',') : '';
-      const reviewerIds = await question(`  审查者用户ID列表 (可选，逗号分隔，如: 1,2,3)${reviewerIdsStr ? ` [${reviewerIdsStr}]` : ''}: `);
-      if (reviewerIds.trim()) {
-        configData.merge_request.reviewer_ids = reviewerIds.split(',').map(id => {
-          const num = parseInt(id.trim(), 10);
-          return isNaN(num) ? 0 : num;
-        }).filter(id => id >= 0);
-      } else if (!reviewerIdsStr) {
-        configData.merge_request.reviewer_ids = [];
-      }
-    }
+    // Note: Merge Request configuration has been integrated into git-tokens module
+    // MR settings are now configured per-platform for GitLab
 
     rl.close();
 
@@ -1150,7 +1361,7 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
     await createConfigFile(configData, isGlobal, configModules, isIncrementalMode);
 
     console.log('\n✅ 配置初始化完成！');
-    if (canUseIncrementalMode && configModules.length < 6) {
+    if (canUseIncrementalMode && configModules.length < 5) {
       if (isGlobal) {
         console.log(`📁 已更新${configModules.join(', ')}模块的全局配置`);
         console.log('💡 其他模块配置保持不变');
@@ -1179,7 +1390,7 @@ export async function initConfig(isGlobal: boolean = false): Promise<void> {
 export async function createConfigFile(
   configData: any,
   isGlobal: boolean,
-  configModules: string[] = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'],
+  configModules: string[] = ['openai', 'git-tokens', 'conan', 'wecom', 'git'],
   isIncrementalMode: boolean = false
 ): Promise<void> {
   // Calculate actual global config path
@@ -1194,12 +1405,13 @@ export async function createConfigFile(
     try {
       const existingContent = fs.readFileSync(globalConfigPath, 'utf8');
       existingConfig = yaml.load(existingContent) as any || {};
+      normalizeConfigTypes(existingConfig);
     } catch (error) {
       console.warn('⚠️  无法读取现有全局配置，将创建新配置');
     }
   }
 
-  if (isIncrementalMode && !isGlobal && configModules.length < 6) {
+  if (isIncrementalMode && !isGlobal && configModules.length < 5) {
     // For incremental local config, only include selected modules
     yamlContent = `# AIFlow 本地配置文件 (增量模式)
 # 此配置将覆盖全局配置的对应部分
@@ -1214,8 +1426,8 @@ export async function createConfigFile(
   }
 
   // Add sections based on selected modules or existing config
-  const allModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git', 'mr'];
-  const modulesToInclude = isIncrementalMode && isGlobal 
+  const allModules = ['openai', 'git-tokens', 'conan', 'wecom', 'git'];
+  const modulesToInclude = isIncrementalMode && isGlobal
     ? allModules  // In global incremental mode, include all modules
     : configModules;  // In other modes, only include selected modules
 
@@ -1229,11 +1441,10 @@ export async function createConfigFile(
         // Map module names to config keys
         const configKeyMap: { [key: string]: string } = {
           'openai': 'openai',
-          'git-tokens': 'git_access_tokens',
+          'git-tokens': 'git_platforms',
           'conan': 'conan',
           'wecom': 'wecom',
-          'git': 'git',
-          'mr': 'merge_request'
+          'git': 'git'
         };
         const configKey = configKeyMap[moduleName] || moduleName;
         if (existingConfig[configKey]) {
@@ -1268,22 +1479,68 @@ openai:
   }
 
   if (modulesToInclude.includes('git-tokens')) {
-    const gitTokensConfig = getModuleConfig('git_access_tokens', configData.git_access_tokens, existingConfig);
-    
-    yamlContent += `# Git 访问令牌配置 - 支持多个Git托管平台
-git_access_tokens:
-${Object.keys(gitTokensConfig || {}).length > 0
-        ? Object.entries(gitTokensConfig).map(([host, token]) => `  # ${host} 访问令牌\n  ${host}: ${token}`).join('\n\n')
-        : `  # GitHub 访问令牌 - 格式: ghp_xxxxxxxxxxxxxxxxxxxx
-  # github.com: ghp_xxxxxxxxxxxxxxxxxxxxx
-  
-  # GitLab 访问令牌 - 格式: glpat-xxxxxxxxxxxxxxxxxxxx  
-  # gitlab.example.com: glpat-xxxxxxxxxxxxxxxxxxxxx
-  
-  # Gitee 访问令牌 - 格式: gitee_xxxxxxxxxxxxxxxxxxxx
-  # gitee.com: gitee_xxxxxxxxxxxxxxxxxxxxx`}
+    const gitPlatformsConfig = getModuleConfig('git_platforms', configData.git_platforms, existingConfig);
+
+    yamlContent += `# Git 平台配置 - 支持多个Git托管平台及平台级设置
+git_platforms:
+`;
+
+    if (Object.keys(gitPlatformsConfig || {}).length > 0) {
+      // Generate config for each platform
+      for (const [hostname, platformConfig] of Object.entries(gitPlatformsConfig)) {
+        yamlContent += `  ${hostname}:\n`;
+        yamlContent += `    access_token: ${(platformConfig as any).access_token}\n`;
+
+        // Add merge_request config if exists (for GitLab)
+        const mrConfig = (platformConfig as any).merge_request;
+        if (mrConfig && Object.keys(mrConfig).length > 0) {
+          yamlContent += `    merge_request:\n`;
+
+          if (mrConfig.assignee) {
+            yamlContent += `      assignee: ${mrConfig.assignee}  # 单个指派人用户名\n`;
+          }
+
+          if (mrConfig.assignees && mrConfig.assignees.length > 0) {
+            yamlContent += `      assignees:  # 多个指派人用户名\n`;
+            mrConfig.assignees.forEach((username: string) => {
+              yamlContent += `        - ${username}\n`;
+            });
+          }
+
+          if (mrConfig.reviewers && mrConfig.reviewers.length > 0) {
+            yamlContent += `      reviewers:  # 审查者用户名\n`;
+            mrConfig.reviewers.forEach((username: string) => {
+              yamlContent += `        - ${username}\n`;
+            });
+          }
+        }
+
+        yamlContent += '\n';
+      }
+    } else {
+      // Show example configuration
+      yamlContent += `  # GitHub 平台示例
+  # github.com:
+  #   access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+
+  # GitLab 平台示例 (支持 Merge Request 配置)
+  # gitlab.example.com:
+  #   access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+  #   merge_request:
+  #     assignee: username1          # 单个指派人用户名
+  #     assignees:                    # 多个指派人用户名
+  #       - username2
+  #       - username3
+  #     reviewers:                    # 审查者用户名
+  #       - reviewer1
+  #       - reviewer2
+
+  # Gitee 平台示例
+  # gitee.com:
+  #   access_token: gitee_xxxxxxxxxxxxxxxxxxxxx
 
 `;
+    }
   }
 
   if (modulesToInclude.includes('conan')) {
@@ -1331,21 +1588,7 @@ git:
 `;
   }
 
-  if (modulesToInclude.includes('mr')) {
-    const mrConfig = getModuleConfig('mr', configData.merge_request, existingConfig);
-    
-    yamlContent += `# 合并请求指派配置 - 配置指派人和审查者
-merge_request:
-  # 单个指派人用户ID (可选) - 设置为0或留空取消指派
-  assignee_id: ${mrConfig?.assignee_id || 0}
-  
-  # 指派人用户ID数组 (可选) - 多个指派人，设置为空数组取消所有指派
-  assignee_ids: ${mrConfig?.assignee_ids ? JSON.stringify(mrConfig.assignee_ids) : '[]'}
-  
-  # 审查者用户ID数组 (可选) - 设置为空数组不添加审查者
-  reviewer_ids: ${mrConfig?.reviewer_ids ? JSON.stringify(mrConfig.reviewer_ids) : '[]'}
-`;
-  }
+  // Note: 'mr' module has been removed, merge request config is now per-platform in git_platforms
 
   // Determine config path
   let configPath: string;

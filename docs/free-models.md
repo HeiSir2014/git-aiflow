@@ -250,11 +250,24 @@ openai:
   key: "sk-or-v1-your-openrouter-key-here"
   baseUrl: "https://openrouter.ai/api/v1"
   model: "x-ai/grok-4-fast:free"
+  # 模型最大上下文token数 - 根据模型文档设置
+  max_context_tokens: 200000
 
 git:
-  generation_lang: "zh"  # 或 "en" 
+  generation_lang: "zh"  # 或 "en"
   squashCommits: true
   removeSourceBranch: true
+
+# Git 平台配置 (新格式，推荐)
+git_platforms:
+  github.com:
+    access_token: ghp_xxxxxxxxxxxxxxxxxxxxx
+  gitlab.example.com:
+    access_token: glpat-xxxxxxxxxxxxxxxxxxxxx
+    merge_request:
+      assignee: username1
+      reviewers:
+        - reviewer1
 
 # 可选：企业微信通知
 wecom:
@@ -299,6 +312,7 @@ openai:
   key: "sk-or-v1-your-openrouter-key"
   baseUrl: "https://openrouter.ai/api/v1"
   model: "qwen/qwen3-coder-480b-a35b-07-25:free"  # 专门的代码模型，480B参数
+  max_context_tokens: 262144  # 根据模型文档设置
 git:
   generation_lang: "en"  # 代码项目建议使用英文
 ```
@@ -309,6 +323,7 @@ openai:
   key: "your-zhipuai-key"
   baseUrl: "https://open.bigmodel.cn/api/paas/v4"
   model: "glm-4-flash"  # 中文支持优秀
+  max_context_tokens: 128000
 git:
   generation_lang: "zh"  # 中文提交信息
 ```
@@ -319,6 +334,7 @@ openai:
   key: "sk-or-v1-your-openrouter-key"
   baseUrl: "https://openrouter.ai/api/v1"
   model: "google/gemini-2.0-flash-exp:free"  # Gemini 2.0 极快TTFT
+  max_context_tokens: 1048576
 git:
   generation_lang: "en"
 ```

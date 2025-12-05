@@ -7,7 +7,7 @@ import { ConanService } from './services/conan-service.js';
 import { FileUpdaterService } from './services/file-updater-service.js';
 import { UpdateChecker } from './utils/update-checker.js';
 import { ColorUtil } from './utils/color-util.js';
-import { parseCliArgs, getConfigValue, getCliHelp, initConfig } from './config.js';
+import { parseCliArgs, getConfigValue, getCliHelp, initConfig, getGitPlatformMergeRequestConfig } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import clipboardy from 'clipboardy';
@@ -117,10 +117,9 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
       const squashCommits = getConfigValue(this.config, 'git.squashCommits', true);
       const removeSourceBranch = getConfigValue(this.config, 'git.removeSourceBranch', true);
 
-      // Get merge request configuration
-      const assigneeId = getConfigValue(this.config, 'merge_request.assignee_id');
-      const assigneeIds = getConfigValue(this.config, 'merge_request.assignee_ids');
-      const reviewerIds = getConfigValue(this.config, 'merge_request.reviewer_ids');
+      // Get platform-specific merge request configuration
+      const hostname = this.git.extractHostnameFromRemoteUrl();
+      const platformMrConfig = hostname ? getGitPlatformMergeRequestConfig(this.config, hostname) : undefined;
 
       const mergeRequestOptions: MergeRequestOptions = {
         squash: squashCommits,
@@ -128,17 +127,19 @@ export class ConanPkgUpdateApp extends BaseAiflowApp {
         description: description
       };
 
-      // Add assignee configuration if specified
-      if (typeof assigneeId === 'number' && assigneeId > 0) {
-        mergeRequestOptions.assignee_id = assigneeId;
-      }
+      // Add assignee and reviewer configuration if specified (using usernames, will be resolved to IDs by platform service)
+      if (platformMrConfig) {
+        if (platformMrConfig.assignee) {
+          mergeRequestOptions.assignee_id = platformMrConfig.assignee as any; // Will be resolved to ID by platform service
+        }
 
-      if (assigneeIds && Array.isArray(assigneeIds) && assigneeIds.length > 0) {
-        mergeRequestOptions.assignee_ids = assigneeIds;
-      }
+        if (platformMrConfig.assignees && platformMrConfig.assignees.length > 0) {
+          mergeRequestOptions.assignee_ids = platformMrConfig.assignees as any[]; // Will be resolved to IDs by platform service
+        }
 
-      if (reviewerIds && Array.isArray(reviewerIds) && reviewerIds.length > 0) {
-        mergeRequestOptions.reviewer_ids = reviewerIds;
+        if (platformMrConfig.reviewers && platformMrConfig.reviewers.length > 0) {
+          mergeRequestOptions.reviewer_ids = platformMrConfig.reviewers as any[]; // Will be resolved to IDs by platform service
+        }
       }
 
       const mrTitle = title;
