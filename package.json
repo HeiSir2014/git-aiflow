@@ -77,8 +77,8 @@
   "license": "MIT",
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
-    "@types/lodash": "^4.17.21",
-    "@types/node": "^24.10.4",
+    "@types/lodash": "^4.17.24",
+    "@types/node": "^24.10.13",
     "@types/semver-compare": "^1.0.3",
     "@types/shell-quote": "^1.7.5",
     "@types/update-notifier": "^6.0.8",
@@ -87,12 +87,12 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@anthropic-ai/sdk": "^0.78.0",
     "chalk": "^5.6.2",
     "clipboardy": "^4.0.0",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.3.1",
     "js-yaml": "^4.1.1",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
     "openai": "^5.23.2",
     "semver-compare": "^1.0.0",
     "shell-quote": "^1.8.3",
