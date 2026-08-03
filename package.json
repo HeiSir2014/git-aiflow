@@ -77,8 +77,8 @@
   "license": "MIT",
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
-    "@types/lodash": "^4.17.24",
-    "@types/node": "^24.10.13",
+    "@types/lodash": "^4.17.25",
+    "@types/node": "^24.10.15",
     "@types/semver-compare": "^1.0.3",
     "@types/shell-quote": "^1.7.5",
     "@types/update-notifier": "^6.0.8",
@@ -95,7 +95,7 @@
     "lodash": "^4.17.23",
     "openai": "^5.23.2",
     "semver-compare": "^1.0.0",
-    "shell-quote": "^1.8.3",
+    "shell-quote": "^1.8.4",
     "update-notifier": "^7.3.1",
     "winston": "^3.19.0"
   },
